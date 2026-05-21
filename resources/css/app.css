@@ -1,0 +1,380 @@
+@import 'tailwindcss';
+
+@plugin 'tailwindcss-animate';
+
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+    --font-sans:
+        'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+
+    --radius-lg: var(--radius);
+    --radius-md: calc(var(--radius) - 2px);
+    --radius-sm: calc(var(--radius) - 4px);
+
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+
+    --color-destructive: var(--destructive);
+    --color-destructive-foreground: var(--destructive-foreground);
+
+    --color-border: var(--border);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+
+    --color-chart-1: var(--chart-1);
+    --color-chart-2: var(--chart-2);
+    --color-chart-3: var(--chart-3);
+    --color-chart-4: var(--chart-4);
+    --color-chart-5: var(--chart-5);
+
+    --color-sidebar: var(--sidebar-background);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-ring: var(--sidebar-ring);
+}
+
+/*
+  The default border color has changed to `currentColor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+    *,
+    ::after,
+    ::before,
+    ::backdrop,
+    ::file-selector-button {
+        border-color: var(--color-gray-200, currentColor);
+    }
+}
+
+:root {
+    --background: hsl(0, 0%, 100%);
+    --foreground: hsl(0, 0%, 3.9%);
+    --card: hsl(0, 0%, 100%);
+    --card-foreground: hsl(0, 0%, 3.9%);
+    --popover: hsl(0, 0%, 100%);
+    --popover-foreground: hsl(0, 0%, 3.9%);
+    --primary: hsl(0, 0%, 9%);
+    --primary-foreground: hsl(0, 0%, 98%);
+    --secondary: hsl(0, 0%, 96.1%);
+    --secondary-foreground: hsl(0, 0%, 9%);
+    --muted: hsl(0, 0%, 96.1%);
+    --muted-foreground: hsl(0, 0%, 45.1%);
+    --accent: hsl(0, 0%, 96.1%);
+    --accent-foreground: hsl(0, 0%, 9%);
+    --destructive: hsl(0, 84.2%, 60.2%);
+    --destructive-foreground: hsl(0, 0%, 98%);
+    --border: hsl(0, 0%, 92.8%);
+    --input: hsl(0, 0%, 89.8%);
+    --ring: hsl(0, 0%, 3.9%);
+    --chart-1: hsl(12, 76%, 61%);
+    --chart-2: hsl(173, 58%, 39%);
+    --chart-3: hsl(197, 37%, 24%);
+    --chart-4: hsl(43, 74%, 66%);
+    --chart-5: hsl(27, 87%, 67%);
+    --radius: 0.5rem;
+    --sidebar-background: hsl(0, 0%, 98%);
+    --sidebar-foreground: hsl(240, 5.3%, 30%);
+    --sidebar-primary: hsl(0, 0%, 10%);
+    --sidebar-primary-foreground: hsl(0, 0%, 98%);
+    --sidebar-accent: hsl(0, 0%, 94%);
+    --sidebar-accent-foreground: hsl(0, 0%, 30%);
+    --sidebar-border: hsl(0, 0%, 91%);
+    --sidebar-ring: hsl(217.2, 91.2%, 59.8%);
+}
+
+.dark {
+    --background: hsl(0, 0%, 3.9%);
+    --foreground: hsl(0, 0%, 98%);
+    --card: hsl(0, 0%, 3.9%);
+    --card-foreground: hsl(0, 0%, 98%);
+    --popover: hsl(0, 0%, 3.9%);
+    --popover-foreground: hsl(0, 0%, 98%);
+    --primary: hsl(0, 0%, 98%);
+    --primary-foreground: hsl(0, 0%, 9%);
+    --secondary: hsl(0, 0%, 14.9%);
+    --secondary-foreground: hsl(0, 0%, 98%);
+    --muted: hsl(0, 0%, 6.9%);
+    --muted-foreground: hsl(0, 0%, 63.9%);
+    --accent: hsl(0, 0%, 14.9%);
+    --accent-foreground: hsl(0, 0%, 98%);
+    --destructive: hsl(0, 84%, 60%);
+    --destructive-foreground: hsl(0, 0%, 98%);
+    --border: hsl(0, 0%, 14.9%);
+    --input: hsl(0, 0%, 14.9%);
+    --ring: hsl(0, 0%, 83.1%);
+    --chart-1: hsl(220, 70%, 50%);
+    --chart-2: hsl(160, 60%, 45%);
+    --chart-3: hsl(30, 80%, 55%);
+    --chart-4: hsl(280, 65%, 60%);
+    --chart-5: hsl(340, 75%, 55%);
+    --sidebar-background: hsl(0, 0%, 7%);
+    --sidebar-foreground: hsl(0, 0%, 80%);
+    --sidebar-primary: hsl(360, 100%, 100%);
+    --sidebar-primary-foreground: hsl(0, 0%, 100%);
+    --sidebar-accent: hsl(0, 0%, 15.9%);
+    --sidebar-accent-foreground: hsl(240, 4.8%, 95.9%);
+    --sidebar-border: hsl(0, 0%, 15.9%);
+    --sidebar-ring: hsl(217.2, 91.2%, 59.8%);
+}
+
+@layer base {
+    * {
+        @apply border-border;
+    }
+
+    body {
+        @apply bg-background text-foreground;
+    }
+}
+
+.bakery-theme {
+    --bakery-lav: #7c7db8;
+    --bakery-lav-light: #eeedfe;
+    --bakery-lav-soft: #afa9ec;
+    --bakery-green: #5e8a3c;
+    --bakery-green-light: #eaf3de;
+    --bakery-green-dark: #3a5c22;
+    --bakery-teal-light: #e4f5f4;
+    --bakery-cream: #fafaf7;
+    --bakery-dark: #1e1c2e;
+    --bakery-gray: #6b6880;
+    --bakery-gray-light: #f0eff8;
+    --bakery-border: rgba(124, 125, 184, 0.18);
+    --bakery-pink-light: #faf0f2;
+    font-family:
+        Instrument Sans,
+        'Segoe UI',
+        ui-sans-serif,
+        system-ui,
+        Arial,
+        sans-serif;
+}
+
+.bakery-serif {
+    font-family:
+        'Segoe UI',
+        Instrument Sans,
+        ui-sans-serif,
+        system-ui,
+        Arial,
+        sans-serif;
+    font-weight: 650;
+}
+
+.bakery-section {
+    padding: 64px 5%;
+}
+
+.bakery-section-title {
+    font-family:
+        'Segoe UI',
+        Instrument Sans,
+        ui-sans-serif,
+        system-ui,
+        Arial,
+        sans-serif;
+    font-size: clamp(28px, 3vw, 40px);
+    font-weight: 650;
+    line-height: 1.15;
+    color: var(--bakery-dark);
+}
+
+.bakery-section-title em {
+    color: var(--bakery-lav);
+    font-style: normal;
+}
+
+.bakery-btn,
+.bakery-nav-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border-radius: 999px;
+    border: 0;
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    transition:
+        transform 0.2s,
+        background 0.2s,
+        color 0.2s,
+        border-color 0.2s;
+}
+
+.bakery-btn {
+    padding: 12px 26px;
+}
+
+.bakery-nav-btn {
+    padding: 8px 18px;
+    background: var(--bakery-lav);
+    color: white;
+}
+
+.bakery-btn:hover,
+.bakery-nav-btn:hover {
+    transform: translateY(-1px);
+}
+
+.bakery-btn-primary {
+    background: var(--bakery-lav);
+    color: white;
+}
+
+.bakery-btn-primary:hover,
+.bakery-nav-btn:hover {
+    background: #6b6caa;
+}
+
+.bakery-btn-secondary {
+    border: 1.5px solid var(--bakery-border);
+    background: transparent;
+    color: var(--bakery-dark);
+}
+
+.bakery-btn-secondary:hover {
+    border-color: var(--bakery-lav);
+    color: var(--bakery-lav);
+}
+
+.bakery-btn-green {
+    background: var(--bakery-green);
+    color: white;
+}
+
+.bakery-btn-lavender {
+    border: 1px solid var(--bakery-lav-soft);
+    background: var(--bakery-lav-light);
+    color: var(--bakery-lav);
+}
+
+.bakery-pill,
+.bakery-product-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border-radius: 999px;
+    padding: 4px 12px;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.bakery-product-tag {
+    position: absolute;
+    left: 10px;
+    top: 10px;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.bakery-pill-lav {
+    background: var(--bakery-lav-light);
+    color: var(--bakery-lav);
+}
+
+.bakery-pill-green {
+    background: var(--bakery-green-light);
+    color: var(--bakery-green-dark);
+}
+
+.bakery-pill-teal {
+    background: var(--bakery-teal-light);
+    color: #2a7570;
+}
+
+.bakery-pill-pink {
+    background: var(--bakery-pink-light);
+    color: #8b3a47;
+}
+
+.bakery-product-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+    gap: 18px;
+}
+
+.bakery-product-card {
+    display: flex;
+    height: 100%;
+    flex-direction: column;
+    overflow: hidden;
+    border-radius: 20px;
+    border: 1px solid var(--bakery-border);
+    background: white;
+    color: inherit;
+    text-decoration: none;
+    transition:
+        transform 0.25s,
+        box-shadow 0.25s;
+}
+
+.bakery-product-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 12px 32px rgba(124, 125, 184, 0.13);
+}
+
+.bakery-input {
+    width: 100%;
+    border-radius: 12px;
+    border: 1.5px solid var(--bakery-border);
+    background: white;
+    padding: 11px 16px;
+    color: var(--bakery-dark);
+    font-size: 14px;
+    outline: none;
+}
+
+.bakery-input:focus {
+    border-color: var(--bakery-lav);
+}
+
+.bakery-label {
+    margin-bottom: 6px;
+    display: block;
+    color: var(--bakery-gray);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.cart-qty-btn {
+    display: grid;
+    width: 28px;
+    height: 28px;
+    place-items: center;
+    border: 1px solid var(--bakery-border);
+    border-radius: 999px;
+    background: white;
+}
