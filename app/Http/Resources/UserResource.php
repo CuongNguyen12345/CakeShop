@@ -22,6 +22,10 @@ class UserResource extends JsonResource
             'name' => $this->when(array_key_exists('name', $attributes), $attributes['name'] ?? null),
             'email' => $this->when(array_key_exists('email', $attributes), $attributes['email'] ?? null),
             'username' => $this->when(array_key_exists('username', $attributes), $attributes['username'] ?? null),
+            'full_name' => $this->when(array_key_exists('full_name', $attributes), $attributes['full_name'] ?? null),
+            'phone_number' => $this->when(array_key_exists('phone_number', $attributes), $attributes['phone_number'] ?? null),
+            'delivery_address' => $this->when(array_key_exists('delivery_address', $attributes), $attributes['delivery_address'] ?? null),
+            'delivery_district' => $this->when(array_key_exists('delivery_district', $attributes), $attributes['delivery_district'] ?? null),
             'role' => $this->when(array_key_exists('role', $attributes), $attributes['role'] ?? null),
             'login_by_google' => $this->when(
                 array_key_exists('login_by_google', $attributes),

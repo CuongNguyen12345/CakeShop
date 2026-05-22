@@ -9,6 +9,8 @@ use Illuminate\Http\Resources\Json\JsonResource;
 /** @mixin Order */
 class OrderResource extends JsonResource
 {
+    private const DISPLAY_TIMEZONE = 'Asia/Ho_Chi_Minh';
+
     /**
      * Transform the resource into an array.
      *
@@ -72,10 +74,17 @@ class OrderResource extends JsonResource
                     'status' => $status,
                     'label' => $label,
                     'state' => $statusIndex < $currentIndex ? 'done' : ($statusIndex === $currentIndex ? 'active' : 'pending'),
-                    'note' => $statusIndex <= $currentIndex ? $this->created_date?->format('d/m/Y H:i') ?? 'Đã cập nhật' : 'Chờ xử lý',
+                    'note' => $statusIndex <= $currentIndex ? $this->formattedCreatedDate() ?? 'Đã cập nhật' : 'Chờ xử lý',
                 ];
             })
             ->values()
             ->all();
+    }
+
+    private function formattedCreatedDate(): ?string
+    {
+        return $this->created_date?->copy()
+            ->timezone(self::DISPLAY_TIMEZONE)
+            ->format('d/m/Y H:i');
     }
 }

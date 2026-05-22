@@ -9,12 +9,14 @@ export type BakeryProduct = {
     categoryId?: number | null;
     imageUrl?: string | null;
     stockQuantity?: number;
+    soldCount?: number;
     tag?: string;
     tagClass?: string;
 };
 
 export type CartItem = BakeryProduct & {
     qty: number;
+    customCakeId?: number;
 };
 
 export const products: BakeryProduct[] = [

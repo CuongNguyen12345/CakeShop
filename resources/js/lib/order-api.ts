@@ -1,4 +1,5 @@
 import type { OrderPaymentStatusResponse } from '@/lib/payment-api';
+import type { PaginatedResourceCollection } from '@/lib/product-api';
 
 export type AdminOrder = OrderPaymentStatusResponse & {
     id: number;
@@ -15,9 +16,15 @@ export type AdminOrder = OrderPaymentStatusResponse & {
 
 export type OrderStatusMap = Record<string, string>;
 
-type ListOrdersResponse = {
-    data: AdminOrder[];
+export type OrderListFilters = {
+    status?: string;
+    page?: number;
+    per_page?: number;
+};
+
+type ListOrdersResponse = PaginatedResourceCollection<AdminOrder> & {
     statuses: OrderStatusMap;
+    status_counts: Record<string, number>;
 };
 
 type UpdateOrderStatusResponse = {
@@ -25,8 +32,10 @@ type UpdateOrderStatusResponse = {
     order: AdminOrder;
 };
 
-export async function listOrders(): Promise<ListOrdersResponse> {
-    return requestJson<ListOrdersResponse>('/api/orders');
+export async function listOrders(filters: OrderListFilters = {}): Promise<ListOrdersResponse> {
+    const queryString = buildQueryString(filters);
+
+    return requestJson<ListOrdersResponse>(`/api/orders${queryString}`);
 }
 
 export async function updateOrderStatus(orderCode: string, orderStatus: string): Promise<AdminOrder> {
@@ -55,6 +64,22 @@ async function requestJson<T>(url: string, options: RequestInit = {}): Promise<T
     }
 
     return data as T;
+}
+
+function buildQueryString(filters: OrderListFilters): string {
+    const searchParams = new URLSearchParams();
+
+    Object.entries(filters).forEach(([key, value]) => {
+        if (value === undefined || value === null || value === '') {
+            return;
+        }
+
+        searchParams.set(key, String(value));
+    });
+
+    const queryString = searchParams.toString();
+
+    return queryString ? `?${queryString}` : '';
 }
 
 function getResponseMessage(data: unknown): string {

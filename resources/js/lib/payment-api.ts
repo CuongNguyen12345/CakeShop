@@ -56,8 +56,10 @@ export async function checkoutPayment(payload: {
     user_id?: number;
     payment_method: PaymentMethod;
     amount: number;
+    voucher_code?: string;
     customer_name?: string;
     customer_phone?: string;
+    customer_email?: string | null;
     customer_address?: string;
     customer_district?: string;
     customer_note?: string;
@@ -65,6 +67,7 @@ export async function checkoutPayment(payload: {
     delivery_slot?: string;
     items: Array<{
         product_id?: number | null;
+        custom_cake_id?: number | null;
         name: string;
         description?: string;
         image_url?: string | null;

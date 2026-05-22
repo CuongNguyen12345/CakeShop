@@ -1,9 +1,14 @@
 export type AuthUser = {
     id: number;
     username: string;
+    name?: string | null;
     email?: string | null;
     role?: string | null;
     login_by_google?: boolean;
+    full_name?: string | null;
+    phone_number?: string | null;
+    delivery_address?: string | null;
+    delivery_district?: string | null;
 };
 
 type AuthResponse = {
@@ -14,6 +19,10 @@ type AuthResponse = {
 type MessageResponse = {
     message: string;
 };
+
+type UserProfilePayload = Partial<
+    Pick<AuthUser, 'name' | 'username' | 'email' | 'full_name' | 'phone_number' | 'delivery_address' | 'delivery_district'>
+>;
 
 export class ApiRequestError extends Error {
     public errors: Record<string, string[]>;
@@ -39,6 +48,13 @@ export async function googleLogin(payload: { credential: string }): Promise<Auth
 
 export async function changePassword(payload: { username: string; email: string; new_password: string }): Promise<MessageResponse> {
     return postJson<MessageResponse>('/api/forgot-password', payload);
+}
+
+export async function updateUserProfile(userId: number, payload: UserProfilePayload): Promise<AuthResponse> {
+    return requestJson<AuthResponse>(`/api/users/${encodeURIComponent(String(userId))}/profile`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+    });
 }
 
 export function rememberAuthUser(user: AuthUser): void {
@@ -72,13 +88,20 @@ export function isAdminUser(user: AuthUser | null): boolean {
 }
 
 async function postJson<T>(url: string, payload: object): Promise<T> {
-    const response = await fetch(url, {
+    return requestJson<T>(url, {
         method: 'POST',
+        body: JSON.stringify(payload),
+    });
+}
+
+async function requestJson<T>(url: string, options: RequestInit): Promise<T> {
+    const response = await fetch(url, {
+        ...options,
         headers: {
             Accept: 'application/json',
             'Content-Type': 'application/json',
+            ...options.headers,
         },
-        body: JSON.stringify(payload),
     });
 
     const data = await response.json().catch(() => ({}));

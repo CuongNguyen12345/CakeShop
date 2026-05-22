@@ -3,9 +3,17 @@ import { Head } from '@inertiajs/react';
 import BakeryLayout from '@/components/bakery/bakery-layout';
 import ProductCard from '@/components/bakery/product-card';
 import { BakeryButton, BakeryFooter, SectionHeader } from '@/components/bakery/shared';
-import { products } from '@/data/bakery';
+import { BakeryProduct, products } from '@/data/bakery';
+import type { CakeProduct } from '@/lib/product-api';
+import { mapCakeProductToBakeryProduct } from '@/lib/product-presenter';
 
-export default function Home() {
+type HomeProps = {
+    bestSellingProducts?: CakeProduct[];
+};
+
+export default function Home({ bestSellingProducts = [] }: HomeProps) {
+    const featuredProducts = bestSellingProducts.length > 0 ? bestSellingProducts.map(mapBestSellingProduct) : products.slice(0, 6);
+
     return (
         <BakeryLayout>
             <Head title="Fleur Bakery" />
@@ -77,7 +85,7 @@ export default function Home() {
             <section className="bakery-section">
                 <SectionHeader emphasized="nổi bật" href="/menu" title="Thực đơn" />
                 <div className="bakery-product-grid">
-                    {products.slice(0, 6).map((product) => (
+                    {featuredProducts.map((product) => (
                         <ProductCard key={product.id} product={product} />
                     ))}
                 </div>
@@ -142,6 +150,17 @@ export default function Home() {
             <BakeryFooter />
         </BakeryLayout>
     );
+}
+
+function mapBestSellingProduct(product: CakeProduct): BakeryProduct {
+    const soldCount = product.sold_count ?? 0;
+    const bakeryProduct = mapCakeProductToBakeryProduct(product);
+
+    return {
+        ...bakeryProduct,
+        tag: soldCount > 0 ? `Đã bán ${soldCount}` : (bakeryProduct.tag ?? 'Bán chạy'),
+        tagClass: 'bakery-pill-lav',
+    };
 }
 
 function FloatingNote({ emoji, title, sub, className }: { emoji: string; title: string; sub: string; className: string }) {

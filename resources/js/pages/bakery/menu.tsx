@@ -7,8 +7,8 @@ import ProductCard from '@/components/bakery/product-card';
 import { BakeryFooter, Breadcrumbs } from '@/components/bakery/shared';
 import { BakeryProduct, products as fallbackProducts } from '@/data/bakery';
 import { readAuthUser } from '@/lib/auth-api';
-import { mapCakeProductToBakeryProduct } from '@/lib/product-presenter';
 import { listCategories, listPaginatedProducts, type PaginationMeta, type ProductCategory } from '@/lib/product-api';
+import { mapCakeProductToBakeryProduct } from '@/lib/product-presenter';
 import { listWishlist } from '@/lib/wishlist-api';
 
 type SortMode = 'popular' | 'price_asc' | 'price_desc' | 'newest';
@@ -26,45 +26,42 @@ export default function Menu() {
     const [searchKeyword, setSearchKeyword] = useState('');
     const [sortMode, setSortMode] = useState<SortMode>('popular');
 
-    const loadMenu = useCallback(
-        async ({ categoryId, keyword, page }: { categoryId: number | 'all'; keyword: string; page: number }) => {
-            setIsLoading(true);
-            setError('');
+    const loadMenu = useCallback(async ({ categoryId, keyword, page }: { categoryId: number | 'all'; keyword: string; page: number }) => {
+        setIsLoading(true);
+        setError('');
 
-            try {
-                const [nextCategories, nextProducts] = await Promise.all([
-                    listCategories(),
-                    listPaginatedProducts({
-                        category_id: categoryId === 'all' ? undefined : categoryId,
-                        is_available: 1,
-                        keyword: keyword.trim(),
-                        page,
-                        per_page: MENU_PAGE_SIZE,
-                    }),
-                ]);
+        try {
+            const [nextCategories, nextProducts] = await Promise.all([
+                listCategories(),
+                listPaginatedProducts({
+                    category_id: categoryId === 'all' ? undefined : categoryId,
+                    is_available: 1,
+                    keyword: keyword.trim(),
+                    page,
+                    per_page: MENU_PAGE_SIZE,
+                }),
+            ]);
 
-                setCategories(nextCategories);
-                setPagination(nextProducts.meta);
-                setProducts(nextProducts.data.map(mapCakeProductToBakeryProduct));
+            setCategories(nextCategories);
+            setPagination(nextProducts.meta);
+            setProducts(nextProducts.data.map(mapCakeProductToBakeryProduct));
 
-                const authUser = readAuthUser();
+            const authUser = readAuthUser();
 
-                if (authUser) {
-                    const wishlistProducts = await listWishlist(authUser.id);
-                    setFavoriteProductIds(new Set(wishlistProducts.map((product) => product.id)));
-                } else {
-                    setFavoriteProductIds(new Set());
-                }
-            } catch (error) {
-                setPagination(null);
-                setProducts(fallbackProducts);
-                setError(error instanceof Error ? error.message : 'Không tải được thực đơn từ hệ thống.');
-            } finally {
-                setIsLoading(false);
+            if (authUser) {
+                const wishlistProducts = await listWishlist(authUser.id);
+                setFavoriteProductIds(new Set(wishlistProducts.map((product) => product.id)));
+            } else {
+                setFavoriteProductIds(new Set());
             }
-        },
-        [],
-    );
+        } catch (error) {
+            setPagination(null);
+            setProducts(fallbackProducts);
+            setError(error instanceof Error ? error.message : 'Không tải được thực đơn từ hệ thống.');
+        } finally {
+            setIsLoading(false);
+        }
+    }, []);
 
     useEffect(() => {
         void loadMenu({ categoryId: 'all', keyword: '', page: 1 });
@@ -149,11 +146,11 @@ export default function Menu() {
             <section className="bakery-section">
                 {error && <div className="mb-5 rounded-[14px] border border-rose-100 bg-rose-50 p-4 text-sm text-rose-700">{error}</div>}
 
-                <form className="mb-5 grid gap-3 md:grid-cols-[minmax(0,420px)_auto]" onSubmit={handleSearch}>
+                <form className="mb-5 grid gap-3 md:grid-cols-[minmax(0,420px)_200px]" onSubmit={handleSearch}>
                     <label className="relative block">
                         <Search className="pointer-events-none absolute top-1/2 left-4 -translate-y-1/2 text-[var(--bakery-lav)]" size={18} />
                         <input
-                            className="h-11 w-full rounded-full border border-[var(--bakery-border)] bg-white pr-4 pl-11 text-sm text-[var(--bakery-dark)] outline-none transition focus:border-[var(--bakery-lav)]"
+                            className="h-11 w-full rounded-full border border-[var(--bakery-border)] bg-white pr-4 pl-11 text-sm text-[var(--bakery-dark)] transition outline-none focus:border-[var(--bakery-lav)]"
                             onChange={(event) => setSearchKeyword(event.target.value)}
                             placeholder="Tìm bánh theo từ khóa"
                             type="search"

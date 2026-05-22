@@ -60,9 +60,20 @@ export default function Checkout() {
     useEffect(() => {
         const cart = removeLegacyDefaultCart(JSON.parse(localStorage.getItem('fleur-cart') ?? 'null') as CartItem[] | null);
         const storedVoucher = JSON.parse(localStorage.getItem('fleur-applied-voucher') ?? 'null') as Voucher | null;
+        const authUser = readAuthUser();
 
         setItems(cart ?? []);
         setAppliedVoucher(storedVoucher);
+
+        if (authUser) {
+            setCustomerInfo((current) => ({
+                ...current,
+                name: authUser.full_name || authUser.name || authUser.username || '',
+                phone: authUser.phone_number || '',
+                address: authUser.delivery_address || '',
+                district: authUser.delivery_district || '',
+            }));
+        }
     }, []);
 
     useEffect(() => {
@@ -106,15 +117,18 @@ export default function Checkout() {
                 user_id: authUser?.id,
                 payment_method: paymentMethod,
                 amount: total,
+                voucher_code: appliedVoucher?.code,
                 customer_name: customerInfo.name.trim(),
                 customer_phone: customerInfo.phone.trim(),
+                customer_email: authUser?.email,
                 customer_address: customerInfo.address.trim(),
                 customer_district: customerInfo.district,
                 customer_note: customerInfo.note.trim() || undefined,
                 delivery_date: deliveryDate,
                 delivery_slot: deliverySlot,
                 items: items.map((item) => ({
-                    product_id: item.id,
+                    product_id: item.customCakeId ? undefined : item.id,
+                    custom_cake_id: item.customCakeId,
                     name: item.name,
                     description: item.desc,
                     image_url: item.imageUrl,

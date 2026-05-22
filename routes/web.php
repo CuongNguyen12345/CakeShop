@@ -1,13 +1,26 @@
 <?php
 
 use App\Http\Resources\OrderResource;
+use App\Http\Resources\ProductResource;
 use App\Models\Order;
+use App\Models\Product;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
 Route::get('/', function () {
-    return Inertia::render('bakery/home');
+    $bestSellingProducts = Product::query()
+        ->with('category')
+        ->withSum('orderItems as sold_count', 'quantity')
+        ->where('is_available', true)
+        ->orderByDesc('sold_count')
+        ->latest('id')
+        ->limit(6)
+        ->get();
+
+    return Inertia::render('bakery/home', [
+        'bestSellingProducts' => ProductResource::collection($bestSellingProducts)->resolve(),
+    ]);
 })->name('home');
 
 Route::get('menu', function () {

@@ -24,6 +24,7 @@ class ProductResource extends JsonResource
             'image_url' => $this->image_url,
             'size_inch' => $this->size_inch,
             'stock_quantity' => (int) ($this->stock_quantity ?? 0),
+            'sold_count' => (int) ($this->sold_count ?? 0),
             'tag' => $this->tag,
             'is_available' => (bool) $this->is_available,
             'category' => new CategoryResource($this->whenLoaded('category')),

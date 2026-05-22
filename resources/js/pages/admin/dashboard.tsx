@@ -1,28 +1,24 @@
 import { Head, Link, router } from '@inertiajs/react';
+import { CategoryScale, Chart as ChartJS, Filler, LinearScale, LineController, LineElement, PointElement, Tooltip, type TooltipItem } from 'chart.js';
 import {
-    CategoryScale,
-    Chart as ChartJS,
-    Filler,
-    LinearScale,
-    LineController,
-    LineElement,
-    PointElement,
-    Tooltip,
-    type TooltipItem,
-} from 'chart.js';
-import {
+    ArrowLeft,
     BarChart3,
     CakeSlice,
+    CalendarDays,
     CheckCircle2,
     ClipboardList,
     Clock3,
+    Eye,
     EyeOff,
+    FileText,
     Home,
     LogOut,
+    MapPin,
     Package,
     PackagePlus,
     Pencil,
     Percent,
+    Phone,
     Plus,
     Search,
     ShoppingBag,
@@ -30,11 +26,13 @@ import {
     Trash2,
     TrendingUp,
     Truck,
+    User,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 
 import { forgetAuthUser, isAdminUser, readAuthUser } from '@/lib/auth-api';
-import { listOrders, updateOrderStatus, type AdminOrder, type OrderStatusMap } from '@/lib/order-api';
+import { listCustomCakes, updateCustomCake, type CustomCakeRequest, type CustomCakeStatusMap } from '@/lib/custom-cake-api';
+import { listOrders, updateOrderStatus, type AdminOrder, type OrderListFilters, type OrderStatusMap } from '@/lib/order-api';
 import {
     createCategory,
     createProduct,
@@ -46,15 +44,16 @@ import {
     updateProduct,
     type CakeProduct,
     type PaginationMeta,
-    type ProductListFilters,
     type ProductCategory,
+    type ProductListFilters,
 } from '@/lib/product-api';
 import { listRevenueStats, type RevenuePeriod, type RevenueStats } from '@/lib/revenue-api';
 import { createVoucher, deleteVoucher, listVouchers, updateVoucher, type Voucher } from '@/lib/voucher-api';
 
-type AdminTab = 'overview' | 'products' | 'vouchers' | 'orders' | 'revenue';
+type AdminTab = 'overview' | 'products' | 'vouchers' | 'orders' | 'custom' | 'revenue';
 
 const PRODUCT_PAGE_SIZE = 8;
+const ORDER_PAGE_SIZE = 5;
 
 ChartJS.register(CategoryScale, LinearScale, LineController, PointElement, LineElement, Filler, Tooltip);
 
@@ -63,6 +62,7 @@ const tabs: { id: AdminTab; label: string; icon: ReactNode }[] = [
     { id: 'products', label: 'Quản lý sản phẩm', icon: <CakeSlice size={18} /> },
     { id: 'vouchers', label: 'Quản lý voucher', icon: <Percent size={18} /> },
     { id: 'orders', label: 'Quản lý đơn hàng', icon: <ClipboardList size={18} /> },
+    { id: 'custom', label: 'Bánh đặt riêng', icon: <FileText size={18} /> },
     { id: 'revenue', label: 'Thống kê doanh thu', icon: <TrendingUp size={18} /> },
 ];
 
@@ -82,10 +82,17 @@ export default function AdminDashboard() {
     const [vouchers, setVouchers] = useState<Voucher[]>([]);
     const [overviewProducts, setOverviewProducts] = useState<CakeProduct[]>([]);
     const [orders, setOrders] = useState<AdminOrder[]>([]);
+    const [orderPagination, setOrderPagination] = useState<PaginationMeta | null>(null);
     const [orderStatuses, setOrderStatuses] = useState<OrderStatusMap>({});
+    const [orderStatusCounts, setOrderStatusCounts] = useState<Record<string, number>>({});
     const [isLoadingOrders, setIsLoadingOrders] = useState(false);
     const [orderError, setOrderError] = useState('');
     const [orderMessage, setOrderMessage] = useState('');
+    const [customCakes, setCustomCakes] = useState<CustomCakeRequest[]>([]);
+    const [customCakeStatuses, setCustomCakeStatuses] = useState<CustomCakeStatusMap>({});
+    const [isLoadingCustomCakes, setIsLoadingCustomCakes] = useState(false);
+    const [customCakeError, setCustomCakeError] = useState('');
+    const [customCakeMessage, setCustomCakeMessage] = useState('');
     const [revenueStats, setRevenueStats] = useState<RevenueStats | null>(null);
     const [isLoadingRevenue, setIsLoadingRevenue] = useState(false);
     const [revenueError, setRevenueError] = useState('');
@@ -148,21 +155,43 @@ export default function AdminDashboard() {
         }
     };
 
-    const refreshOrders = async () => {
+    const refreshOrders = useCallback(async (filters: OrderListFilters = { page: 1, per_page: ORDER_PAGE_SIZE }) => {
         setIsLoadingOrders(true);
         setOrderError('');
 
         try {
-            const response = await listOrders();
+            const response = await listOrders({
+                ...filters,
+                page: filters.page ?? 1,
+                per_page: filters.per_page ?? ORDER_PAGE_SIZE,
+            });
 
             setOrders(response.data);
+            setOrderPagination(response.meta);
             setOrderStatuses(response.statuses);
+            setOrderStatusCounts(response.status_counts);
         } catch (error) {
             setOrderError(error instanceof Error ? error.message : 'Không tải được dữ liệu đơn hàng.');
         } finally {
             setIsLoadingOrders(false);
         }
-    };
+    }, []);
+
+    const refreshCustomCakes = useCallback(async () => {
+        setIsLoadingCustomCakes(true);
+        setCustomCakeError('');
+
+        try {
+            const response = await listCustomCakes();
+
+            setCustomCakes(response.data);
+            setCustomCakeStatuses(response.statuses);
+        } catch (error) {
+            setCustomCakeError(error instanceof Error ? error.message : 'Không tải được yêu cầu bánh riêng.');
+        } finally {
+            setIsLoadingCustomCakes(false);
+        }
+    }, []);
 
     const refreshRevenueStats = useCallback(async (nextPeriod: string) => {
         setIsLoadingRevenue(true);
@@ -185,7 +214,8 @@ export default function AdminDashboard() {
         void refreshProductManagement();
         void refreshVouchers();
         void refreshOrders();
-    }, [hasCheckedAuth, refreshProductManagement]);
+        void refreshCustomCakes();
+    }, [hasCheckedAuth, refreshCustomCakes, refreshOrders, refreshProductManagement]);
 
     useEffect(() => {
         if (!hasCheckedAuth) {
@@ -316,9 +346,22 @@ export default function AdminDashboard() {
                                 isLoading={isLoadingOrders}
                                 message={orderMessage}
                                 orders={orders}
+                                pagination={orderPagination}
                                 refreshOrders={refreshOrders}
                                 setMessage={setOrderMessage}
+                                statusCounts={orderStatusCounts}
                                 statuses={orderStatuses}
+                            />
+                        )}
+                        {activeTab === 'custom' && (
+                            <CustomCakesTab
+                                customCakes={customCakes}
+                                error={customCakeError}
+                                isLoading={isLoadingCustomCakes}
+                                message={customCakeMessage}
+                                refreshCustomCakes={refreshCustomCakes}
+                                setMessage={setCustomCakeMessage}
+                                statuses={customCakeStatuses}
                             />
                         )}
                         {activeTab === 'revenue' && (
@@ -367,7 +410,12 @@ function OverviewTab({
                     value={`${activeProducts.length}`}
                     note={`${categories.length} danh mục`}
                 />
-                <MetricCard icon={<ShoppingBag size={20} />} label="Đơn hàng hôm nay" value={`${orders.length}`} note={`${shippingOrders} đơn đang giao`} />
+                <MetricCard
+                    icon={<ShoppingBag size={20} />}
+                    label="Đơn hàng hôm nay"
+                    value={`${orders.length}`}
+                    note={`${shippingOrders} đơn đang giao`}
+                />
                 <MetricCard
                     icon={<BarChart3 size={20} />}
                     label="Doanh thu kỳ này"
@@ -462,7 +510,9 @@ function ProductsTab({
     }, [categories, productForm.category_id]);
 
     const countProductsByCategory = (category: ProductCategory) =>
-        typeof category.products_count === 'number' ? category.products_count : products.filter((product) => product.category_id === category.id).length;
+        typeof category.products_count === 'number'
+            ? category.products_count
+            : products.filter((product) => product.category_id === category.id).length;
 
     const buildProductListFilters = (nextFilters = filters, page = 1): ProductListFilters => ({
         keyword: nextFilters.keyword.trim(),
@@ -851,7 +901,10 @@ function ProductsTab({
                         )}
                     </div>
                 </form>
-                <form className="mb-4 grid gap-3 rounded-xl border border-slate-200 bg-white p-4 xl:grid-cols-[1.2fr_.8fr_.8fr_.8fr_auto]" onSubmit={handleApplyFilters}>
+                <form
+                    className="mb-4 grid gap-3 rounded-xl border border-slate-200 bg-white p-4 xl:grid-cols-[1.2fr_.8fr_.8fr_.8fr_auto]"
+                    onSubmit={handleApplyFilters}
+                >
                     <label className="relative block">
                         <Search className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-slate-400" size={16} />
                         <input
@@ -929,10 +982,12 @@ function ProductsTab({
 }
 
 function PaginationControls({
+    itemLabel = 'sản phẩm',
     isLoading,
     meta,
     onPageChange,
 }: {
+    itemLabel?: string;
     isLoading: boolean;
     meta: PaginationMeta | null;
     onPageChange: (page: number) => Promise<void>;
@@ -946,7 +1001,7 @@ function PaginationControls({
     return (
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4 text-sm">
             <div className="text-slate-500">
-                Hiển thị {meta.from ?? 0}-{meta.to ?? 0} trong {meta.total} sản phẩm
+                Hiển thị {meta.from ?? 0}-{meta.to ?? 0} trong {meta.total} {itemLabel}
             </div>
             <div className="flex flex-wrap items-center gap-2">
                 <button
@@ -1005,7 +1060,6 @@ function VouchersTab({
         code: '',
         discount_percent: '10',
         usage_limit: '20',
-        used_count: '0',
         is_active: true,
     });
     const activeVouchers = vouchers.filter((voucher) => voucher.is_active && voucher.remaining_uses > 0);
@@ -1017,7 +1071,6 @@ function VouchersTab({
             code: '',
             discount_percent: '10',
             usage_limit: '20',
-            used_count: '0',
             is_active: true,
         });
     };
@@ -1030,7 +1083,6 @@ function VouchersTab({
             code: voucherForm.code.trim(),
             discount_percent: Number(voucherForm.discount_percent),
             usage_limit: Number(voucherForm.usage_limit),
-            used_count: Number(voucherForm.used_count || 0),
             is_active: voucherForm.is_active,
         };
 
@@ -1056,7 +1108,6 @@ function VouchersTab({
             code: voucher.code,
             discount_percent: String(voucher.discount_percent),
             usage_limit: String(voucher.usage_limit),
-            used_count: String(voucher.used_count),
             is_active: voucher.is_active,
         });
     };
@@ -1115,7 +1166,7 @@ function VouchersTab({
                 title="Quản lý voucher"
                 subtitle="Tạo mã giảm giá theo phần trăm và giới hạn số lần sử dụng. Mã còn hoạt động sẽ áp dụng được trong giỏ hàng."
             >
-                <form className="mb-5 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 lg:grid-cols-5" onSubmit={handleSubmitVoucher}>
+                <form className="mb-5 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 lg:grid-cols-4" onSubmit={handleSubmitVoucher}>
                     <input
                         className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold uppercase outline-none focus:border-emerald-400"
                         onChange={(event) => setVoucherForm((currentForm) => ({ ...currentForm, code: event.target.value }))}
@@ -1140,14 +1191,6 @@ function VouchersTab({
                         type="number"
                         value={voucherForm.usage_limit}
                     />
-                    <input
-                        className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-emerald-400"
-                        min="0"
-                        onChange={(event) => setVoucherForm((currentForm) => ({ ...currentForm, used_count: event.target.value }))}
-                        placeholder="Đã dùng"
-                        type="number"
-                        value={voucherForm.used_count}
-                    />
                     <label className="flex min-h-11 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-600">
                         <input
                             checked={voucherForm.is_active}
@@ -1157,7 +1200,7 @@ function VouchersTab({
                         />
                         Đang bật
                     </label>
-                    <div className="flex gap-2 lg:col-span-5">
+                    <div className="flex gap-2 lg:col-span-4">
                         <button
                             className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-5 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                             disabled={isLoading}
@@ -1184,24 +1227,274 @@ function VouchersTab({
     );
 }
 
+function CustomCakesTab({
+    customCakes,
+    error,
+    isLoading,
+    message,
+    refreshCustomCakes,
+    setMessage,
+    statuses,
+}: {
+    customCakes: CustomCakeRequest[];
+    error: string;
+    isLoading: boolean;
+    message: string;
+    refreshCustomCakes: () => Promise<void>;
+    setMessage: (message: string) => void;
+    statuses: CustomCakeStatusMap;
+}) {
+    const [activeStatus, setActiveStatus] = useState('all');
+    const [drafts, setDrafts] = useState<Record<number, { admin_note: string; estimated_price: string; status: string }>>({});
+    const statusCounts = customCakes.reduce<Record<string, number>>((counts, customCake) => {
+        counts[customCake.status] = (counts[customCake.status] ?? 0) + 1;
+
+        return counts;
+    }, {});
+    const selectableCustomCakeStatusEntries = Object.entries(statuses).filter(
+        ([status]) => !['need_more_info', 'converted_to_order'].includes(status),
+    );
+    const filteredCustomCakes = activeStatus === 'all' ? customCakes : customCakes.filter((customCake) => customCake.status === activeStatus);
+    const pendingCount = statusCounts.pending_review ?? 0;
+    const quotedCount = statusCounts.quoted ?? 0;
+
+    useEffect(() => {
+        setDrafts(
+            Object.fromEntries(
+                customCakes.map((customCake) => [
+                    customCake.id,
+                    {
+                        admin_note: customCake.admin_note ?? '',
+                        estimated_price: customCake.estimated_price ? String(Math.round(customCake.estimated_price)) : '',
+                        status: customCake.status,
+                    },
+                ]),
+            ),
+        );
+    }, [customCakes]);
+
+    const updateDraft = (customCakeId: number, field: 'admin_note' | 'estimated_price' | 'status', value: string) => {
+        setDrafts((current) => ({
+            ...current,
+            [customCakeId]: {
+                admin_note: current[customCakeId]?.admin_note ?? '',
+                estimated_price: current[customCakeId]?.estimated_price ?? '',
+                status: current[customCakeId]?.status ?? 'pending_review',
+                [field]: value,
+            },
+        }));
+    };
+
+    const handleUpdateCustomCake = async (customCake: CustomCakeRequest) => {
+        const draft = drafts[customCake.id];
+
+        if (!draft) {
+            return;
+        }
+
+        try {
+            await updateCustomCake(customCake.id, {
+                status: draft.status,
+                estimated_price: draft.estimated_price ? Number(draft.estimated_price) : null,
+                admin_note: draft.admin_note || null,
+            });
+            await refreshCustomCakes();
+            setMessage('Đã cập nhật yêu cầu bánh riêng.');
+        } catch (caughtError) {
+            setMessage(caughtError instanceof Error ? caughtError.message : 'Không cập nhật được yêu cầu bánh riêng.');
+        }
+    };
+
+    return (
+        <div className="grid gap-6">
+            <section className="grid gap-4 md:grid-cols-3">
+                <MetricCard icon={<FileText size={20} />} label="Tổng yêu cầu" value={`${customCakes.length}`} note="Mới nhất trước" />
+                <MetricCard icon={<Clock3 size={20} />} label="Chờ xem xét" value={`${pendingCount}`} note="Cần phản hồi sớm" />
+                <MetricCard icon={<CheckCircle2 size={20} />} label="Đã báo giá" value={`${quotedCount}`} note="Khách có thể đặt hàng" />
+            </section>
+
+            {(message || error) && (
+                <div
+                    className={`rounded-xl border p-4 text-sm ${error ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}
+                >
+                    {error || message}
+                </div>
+            )}
+
+            <section className="rounded-xl border border-slate-200 bg-white p-5">
+                <div className="mb-5 flex flex-wrap items-center gap-2">
+                    <FilterButton active={activeStatus === 'all'} count={customCakes.length} label="Tất cả" onClick={() => setActiveStatus('all')} />
+                    {Object.entries(statuses).map(([status, label]) => (
+                        <FilterButton
+                            active={activeStatus === status}
+                            count={statusCounts[status] ?? 0}
+                            key={status}
+                            label={label}
+                            onClick={() => setActiveStatus(status)}
+                        />
+                    ))}
+                </div>
+
+                {isLoading && <div className="rounded-xl bg-slate-50 p-6 text-sm text-slate-500">Đang tải yêu cầu bánh riêng...</div>}
+                {!isLoading && filteredCustomCakes.length === 0 && <EmptyState message="Chưa có yêu cầu bánh riêng nào." />}
+
+                <div className="grid gap-4">
+                    {!isLoading &&
+                        filteredCustomCakes.map((customCake) => {
+                            const draft = drafts[customCake.id] ?? {
+                                admin_note: customCake.admin_note ?? '',
+                                estimated_price: customCake.estimated_price ? String(Math.round(customCake.estimated_price)) : '',
+                                status: customCake.status,
+                            };
+
+                            return (
+                                <article className="rounded-xl border border-slate-200 bg-slate-50 p-4" key={customCake.id}>
+                                    <div className="grid gap-4 xl:grid-cols-[140px_1fr_320px]">
+                                        <div className="grid h-32 place-items-center overflow-hidden rounded-lg bg-white text-sm font-semibold text-slate-400">
+                                            {customCake.reference_image_url ? (
+                                                <img
+                                                    className="h-full w-full object-cover"
+                                                    src={customCake.reference_image_url}
+                                                    alt={`Mẫu bánh #${customCake.id}`}
+                                                />
+                                            ) : (
+                                                'No image'
+                                            )}
+                                        </div>
+                                        <div className="min-w-0">
+                                            <div className="mb-2 flex flex-wrap items-center gap-2">
+                                                <h3 className="font-semibold">Yêu cầu #{customCake.id}</h3>
+                                                <StatusBadge status={customCake.status_label} />
+                                            </div>
+                                            <div className="grid gap-1 text-sm text-slate-600">
+                                                <span>
+                                                    {customCake.customer_name} · {customCake.customer_phone}
+                                                </span>
+                                                <span>
+                                                    {[
+                                                        customCake.cake_size,
+                                                        customCake.flavor,
+                                                        customCake.servings ? `${customCake.servings} người ăn` : null,
+                                                    ]
+                                                        .filter(Boolean)
+                                                        .join(' · ')}
+                                                </span>
+                                                <span>
+                                                    Ngày nhận: {customCake.desired_date ? formatOrderTime(customCake.desired_date) : 'Chưa cập nhật'}
+                                                </span>
+                                                <span>Ngân sách: {customCake.budget_formatted ?? 'Chưa có'}</span>
+                                                {customCake.text_on_cake && <span>Chữ trên bánh: {customCake.text_on_cake}</span>}
+                                                {customCake.accessories && <span>Phụ kiện: {customCake.accessories}</span>}
+                                                {customCake.note && <span>Ghi chú: {customCake.note}</span>}
+                                            </div>
+                                        </div>
+                                        <div className="grid gap-3 rounded-lg bg-white p-4">
+                                            <label className="grid gap-1 text-xs font-medium text-slate-600">
+                                                Trạng thái
+                                                <select
+                                                    className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                                                    onChange={(event) => updateDraft(customCake.id, 'status', event.target.value)}
+                                                    value={draft.status}
+                                                >
+                                                    {!selectableCustomCakeStatusEntries.some(([status]) => status === draft.status) && (
+                                                        <option disabled hidden value={draft.status}>
+                                                            {statuses[draft.status] ?? customCake.status_label}
+                                                        </option>
+                                                    )}
+                                                    {selectableCustomCakeStatusEntries.map(([status, label]) => (
+                                                        <option key={status} value={status}>
+                                                            {label}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </label>
+                                            <label className="grid gap-1 text-xs font-medium text-slate-600">
+                                                Giá báo
+                                                <input
+                                                    className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                                                    min="0"
+                                                    onChange={(event) => updateDraft(customCake.id, 'estimated_price', event.target.value)}
+                                                    placeholder="VD: 650000"
+                                                    type="number"
+                                                    value={draft.estimated_price}
+                                                />
+                                            </label>
+                                            <label className="grid gap-1 text-xs font-medium text-slate-600">
+                                                Phản hồi cho khách
+                                                <textarea
+                                                    className="min-h-20 rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                                                    onChange={(event) => updateDraft(customCake.id, 'admin_note', event.target.value)}
+                                                    placeholder="VD: Tiệm làm được mẫu này, cần chỉnh màu..."
+                                                    value={draft.admin_note}
+                                                />
+                                            </label>
+                                            <button
+                                                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-medium text-white hover:bg-emerald-700"
+                                                onClick={() => void handleUpdateCustomCake(customCake)}
+                                                type="button"
+                                            >
+                                                <CheckCircle2 size={16} />
+                                                Lưu phản hồi
+                                            </button>
+                                        </div>
+                                    </div>
+                                </article>
+                            );
+                        })}
+                </div>
+            </section>
+        </div>
+    );
+}
+
 function OrdersTab({
     error,
     isLoading,
     message,
     orders,
+    pagination,
     refreshOrders,
     setMessage,
+    statusCounts,
     statuses,
 }: {
     error: string;
     isLoading: boolean;
     message: string;
     orders: AdminOrder[];
-    refreshOrders: () => Promise<void>;
+    pagination: PaginationMeta | null;
+    refreshOrders: (filters?: OrderListFilters) => Promise<void>;
     setMessage: (message: string) => void;
+    statusCounts: Record<string, number>;
     statuses: OrderStatusMap;
 }) {
-    const countByStatus = (status: string) => orders.filter((order) => order.order_status === status).length;
+    const [filters, setFilters] = useState({
+        status: 'all',
+    });
+    const [selectedOrder, setSelectedOrder] = useState<AdminOrder | null>(null);
+    const currentPage = pagination?.current_page ?? 1;
+    const totalOrders = Object.values(statusCounts).reduce((total, count) => total + count, 0) || pagination?.total || orders.length;
+    const countByStatus = (status: string) => statusCounts[status] ?? 0;
+
+    const buildOrderListFilters = (nextFilters = filters, page = 1): OrderListFilters => ({
+        status: nextFilters.status === 'all' ? undefined : nextFilters.status,
+        page,
+        per_page: ORDER_PAGE_SIZE,
+    });
+
+    const handleSelectStatus = async (status: string) => {
+        const nextFilters = { status };
+
+        setFilters(nextFilters);
+        setSelectedOrder(null);
+        setMessage('');
+        await refreshOrders(buildOrderListFilters(nextFilters, 1));
+    };
+
+    const handlePageChange = async (page: number) => {
+        setSelectedOrder(null);
+        await refreshOrders(buildOrderListFilters(filters, page));
+    };
 
     const handleAdvanceStatus = async (order: AdminOrder) => {
         const nextStatus = getNextOrderStatus(order.order_status, statuses);
@@ -1215,8 +1508,10 @@ function OrdersTab({
         setMessage('');
 
         try {
-            await updateOrderStatus(order.code, nextStatus);
-            await refreshOrders();
+            const updatedOrder = await updateOrderStatus(order.code, nextStatus);
+
+            setSelectedOrder((currentOrder) => (currentOrder?.code === updatedOrder.code ? updatedOrder : currentOrder));
+            await refreshOrders(buildOrderListFilters(filters, currentPage));
             setMessage(`Đã cập nhật ${order.code} sang trạng thái ${statuses[nextStatus]}.`);
         } catch (error) {
             setMessage(error instanceof Error ? error.message : 'Không cập nhật được trạng thái đơn hàng.');
@@ -1226,24 +1521,52 @@ function OrdersTab({
     return (
         <>
             <section className="grid gap-4 md:grid-cols-4">
-                <MetricCard icon={<ClipboardList size={20} />} label="Tổng đơn" value={`${orders.length}`} note="Đơn mới nhất trước" />
+                <MetricCard icon={<ClipboardList size={20} />} label="Tổng đơn" value={`${totalOrders}`} note="Đơn mới nhất trước" />
                 <MetricCard icon={<Clock3 size={20} />} label="Chờ xác nhận" value={`${countByStatus('pending')}`} note="Ưu tiên xử lý" />
                 <MetricCard icon={<Truck size={20} />} label="Đang giao" value={`${countByStatus('shipping')}`} note="Theo dõi shipper" />
                 <MetricCard icon={<CheckCircle2 size={20} />} label="Đã giao" value={`${countByStatus('delivered')}`} note="Hoàn tất" />
             </section>
 
-            <Panel title="Quản lý đơn hàng" subtitle="Bấm chuyển trạng thái đơn: nhận đơn -> xác nhận -> làm bánh -> bàn giao shipper -> đang giao -> đã giao.">
-                <div className="mb-4 flex flex-wrap gap-2">
-                    <FilterButton active label="Tất cả đơn" />
-                    <FilterButton label="Chờ xác nhận" />
-                    <FilterButton label="Đang làm bánh" />
-                    <FilterButton label="Bàn giao shipper" />
-                    <FilterButton label="Đang giao" />
-                    <FilterButton label="Đã giao" />
-                </div>
+            <Panel
+                title="Quản lý đơn hàng"
+                subtitle="Bấm chuyển trạng thái đơn: nhận đơn -> xác nhận -> làm bánh -> bàn giao shipper -> đang giao -> đã giao."
+            >
+                {!selectedOrder && (
+                    <div className="mb-4 flex flex-wrap gap-2">
+                        <FilterButton
+                            active={filters.status === 'all'}
+                            count={totalOrders}
+                            label="Tất cả đơn"
+                            onClick={() => void handleSelectStatus('all')}
+                        />
+                        {Object.entries(statuses).map(([status, label]) => (
+                            <FilterButton
+                                active={filters.status === status}
+                                count={countByStatus(status)}
+                                key={status}
+                                label={label}
+                                onClick={() => void handleSelectStatus(status)}
+                            />
+                        ))}
+                    </div>
+                )}
                 {message && <div className="mb-4 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700">{message}</div>}
                 {error && <div className="mb-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</div>}
-                {isLoading ? <EmptyState message="Đang tải đơn hàng..." /> : <OrderList onAdvanceStatus={handleAdvanceStatus} orders={orders} statuses={statuses} />}
+                {selectedOrder ? (
+                    <OrderDetail
+                        order={selectedOrder}
+                        onAdvanceStatus={handleAdvanceStatus}
+                        onBack={() => setSelectedOrder(null)}
+                        statuses={statuses}
+                    />
+                ) : isLoading ? (
+                    <EmptyState message="Đang tải đơn hàng..." />
+                ) : (
+                    <OrderList onAdvanceStatus={handleAdvanceStatus} onViewDetails={setSelectedOrder} orders={orders} statuses={statuses} />
+                )}
+                {!selectedOrder && (
+                    <PaginationControls isLoading={isLoading} itemLabel="đơn hàng" meta={pagination} onPageChange={handlePageChange} />
+                )}
             </Panel>
         </>
     );
@@ -1524,11 +1847,13 @@ function ProductTable({
 function OrderList({
     compact = false,
     onAdvanceStatus,
+    onViewDetails,
     orders,
     statuses = {},
 }: {
     compact?: boolean;
     onAdvanceStatus?: (order: AdminOrder) => void;
+    onViewDetails?: (order: AdminOrder) => void;
     orders: AdminOrder[];
     statuses?: OrderStatusMap;
 }) {
@@ -1546,7 +1871,9 @@ function OrderList({
                             <span className="font-semibold">#{order.code}</span>
                             <StatusBadge status={order.order_status_label} />
                         </div>
-                        <div className="mt-1 text-sm text-slate-600">{order.customer_name} · {summarizeOrderItems(order)} · {formatOrderTime(order.created_date)}</div>
+                        <div className="mt-1 text-sm text-slate-600">
+                            {order.customer_name} · {summarizeOrderItems(order)} · {formatOrderTime(order.created_date)}
+                        </div>
                         {!compact && (
                             <div className="mt-2 grid gap-1 text-xs text-slate-500">
                                 <span>
@@ -1557,20 +1884,187 @@ function OrderList({
                         )}
                     </div>
                     <div className="text-sm font-semibold text-emerald-700">{formatCurrency(order.amount)}</div>
-                    {onAdvanceStatus && (
-                        <button
-                            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-emerald-200 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
-                            disabled={!getNextOrderStatus(order.order_status, statuses)}
-                            onClick={() => onAdvanceStatus(order)}
-                            type="button"
-                        >
-                            <Truck size={16} />
-                            {getNextOrderStatus(order.order_status, statuses) ? 'Chuyển trạng thái' : 'Đã hoàn tất'}
-                        </button>
+                    {(onAdvanceStatus || onViewDetails) && (
+                        <div className="flex flex-wrap justify-start gap-2 md:justify-end">
+                            {onViewDetails && (
+                                <button
+                                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                                    onClick={() => onViewDetails(order)}
+                                    type="button"
+                                >
+                                    <Eye size={16} />
+                                    Chi tiết
+                                </button>
+                            )}
+                            {onAdvanceStatus && (
+                                <button
+                                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-emerald-200 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                    disabled={!getNextOrderStatus(order.order_status, statuses)}
+                                    onClick={() => onAdvanceStatus(order)}
+                                    type="button"
+                                >
+                                    <Truck size={16} />
+                                    {getNextOrderStatus(order.order_status, statuses) ? 'Chuyển trạng thái' : 'Đã hoàn tất'}
+                                </button>
+                            )}
+                        </div>
                     )}
                 </div>
             ))}
             {visibleOrders.length === 0 && <EmptyState message="Chưa có đơn hàng nào." />}
+        </div>
+    );
+}
+
+function OrderDetail({
+    onAdvanceStatus,
+    onBack,
+    order,
+    statuses,
+}: {
+    onAdvanceStatus: (order: AdminOrder) => void;
+    onBack: () => void;
+    order: AdminOrder;
+    statuses: OrderStatusMap;
+}) {
+    const subtotal = order.items.reduce((total, item) => total + item.line_total, 0);
+    const discountAmount = Math.max(0, subtotal - order.amount);
+    const deliveryAddress = [order.customer_address, order.customer_district].filter(Boolean).join(', ') || order.shipping_address;
+    const nextStatus = getNextOrderStatus(order.order_status, statuses);
+
+    return (
+        <div className="grid gap-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <button
+                        className="mb-3 inline-flex min-h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                        onClick={onBack}
+                        type="button"
+                    >
+                        <ArrowLeft size={16} />
+                        Quay lại danh sách
+                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-xl font-semibold">#{order.code}</h3>
+                        <StatusBadge status={order.order_status_label} />
+                    </div>
+                    <p className="mt-1 text-sm text-slate-500">Tạo lúc {formatOrderTime(order.created_date)}</p>
+                </div>
+                <button
+                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-emerald-200 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={!nextStatus}
+                    onClick={() => onAdvanceStatus(order)}
+                    type="button"
+                >
+                    <Truck size={16} />
+                    {nextStatus ? `Chuyển sang ${statuses[nextStatus]}` : 'Đã hoàn tất'}
+                </button>
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-[.9fr_1.1fr]">
+                <section className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="mb-4 flex items-center gap-2 font-semibold text-slate-900">
+                        <User size={18} />
+                        Thông tin khách hàng
+                    </div>
+                    <div className="grid gap-3 text-sm">
+                        <OrderInfoRow icon={<User size={16} />} label="Tên khách" value={order.customer_name} />
+                        <OrderInfoRow icon={<Phone size={16} />} label="Số điện thoại" value={order.customer_phone} />
+                        <OrderInfoRow icon={<MapPin size={16} />} label="Địa chỉ" value={deliveryAddress} />
+                        <OrderInfoRow icon={<CalendarDays size={16} />} label="Khung giờ" value={order.delivery_slot ?? 'Chưa cập nhật'} />
+                        {order.customer_note && <OrderInfoRow icon={<FileText size={16} />} label="Ghi chú" value={order.customer_note} />}
+                    </div>
+                </section>
+
+                <section className="rounded-xl border border-slate-200 bg-white p-4">
+                    <div className="mb-4 flex items-center gap-2 font-semibold text-slate-900">
+                        <FileText size={18} />
+                        Hóa đơn
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full min-w-[620px] text-left text-sm">
+                            <thead className="text-xs text-slate-500 uppercase">
+                                <tr className="border-b border-slate-200">
+                                    <th className="py-3">Sản phẩm</th>
+                                    <th>Số lượng</th>
+                                    <th>Đơn giá</th>
+                                    <th className="text-right">Thành tiền</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {order.items.map((item) => (
+                                    <tr className="border-b border-slate-100 last:border-0" key={item.id}>
+                                        <td className="py-3">
+                                            <div className="font-medium text-slate-900">{item.name}</div>
+                                            {item.description && <div className="mt-1 text-xs text-slate-500">{item.description}</div>}
+                                        </td>
+                                        <td>{item.quantity}</td>
+                                        <td>{formatCurrency(item.price)}</td>
+                                        <td className="text-right font-medium text-slate-900">{formatCurrency(item.line_total)}</td>
+                                    </tr>
+                                ))}
+                                {order.items.length === 0 && (
+                                    <tr>
+                                        <td className="py-8 text-center text-sm text-slate-500" colSpan={4}>
+                                            Chưa có sản phẩm trong hóa đơn.
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div className="mt-4 ml-auto grid max-w-sm gap-2 border-t border-slate-100 pt-4 text-sm">
+                        <OrderTotalRow label="Tạm tính" value={formatCurrency(subtotal)} />
+                        {discountAmount > 0 && <OrderTotalRow label="Giảm giá" value={`-${formatCurrency(discountAmount)}`} />}
+                        <OrderTotalRow label="Tổng thanh toán" strong value={formatCurrency(order.amount)} />
+                    </div>
+                </section>
+            </div>
+
+            <section className="rounded-xl border border-slate-200 bg-white p-4">
+                <div className="mb-4 flex items-center gap-2 font-semibold text-slate-900">
+                    <ClipboardList size={18} />
+                    Tiến trình đơn hàng
+                </div>
+                <div className="grid gap-2 md:grid-cols-3 xl:grid-cols-6">
+                    {order.timeline.map((item) => (
+                        <div
+                            className={`rounded-lg border p-3 text-xs ${
+                                item.state === 'active'
+                                    ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                                    : item.state === 'done'
+                                      ? 'border-slate-200 bg-slate-50 text-slate-700'
+                                      : 'border-slate-100 bg-white text-slate-400'
+                            }`}
+                            key={item.status}
+                        >
+                            <div className="font-semibold">{item.label}</div>
+                            <div className="mt-1">{item.note}</div>
+                        </div>
+                    ))}
+                </div>
+            </section>
+        </div>
+    );
+}
+
+function OrderInfoRow({ icon, label, value }: { icon: ReactNode; label: string; value?: string | null }) {
+    return (
+        <div className="flex items-start gap-3 rounded-lg bg-white px-3 py-2 text-slate-700">
+            <span className="mt-0.5 text-emerald-600">{icon}</span>
+            <div>
+                <div className="text-xs font-medium text-slate-500">{label}</div>
+                <div className="mt-0.5 font-medium">{value || 'Chưa cập nhật'}</div>
+            </div>
+        </div>
+    );
+}
+
+function OrderTotalRow({ label, strong = false, value }: { label: string; strong?: boolean; value: string }) {
+    return (
+        <div className={`flex justify-between gap-4 ${strong ? 'text-base font-semibold text-slate-900' : 'text-slate-600'}`}>
+            <span>{label}</span>
+            <span className={strong ? 'text-emerald-700' : ''}>{value}</span>
         </div>
     );
 }
@@ -1800,7 +2294,8 @@ function RevenueChart({
                 <div className="mt-5 rounded-xl border border-emerald-100 bg-emerald-50 p-4">
                     <div className="text-sm font-semibold text-emerald-900">{stats.best_seller.name} đang là Best Seller</div>
                     <div className="mt-1 text-xs text-emerald-700">
-                        Doanh thu: {stats.best_seller.revenue_formatted} · {stats.best_seller.quantity} sản phẩm · {stats.best_seller.orders_count} đơn
+                        Doanh thu: {stats.best_seller.revenue_formatted} · {stats.best_seller.quantity} sản phẩm · {stats.best_seller.orders_count}{' '}
+                        đơn
                     </div>
                 </div>
             )}
@@ -1892,13 +2387,19 @@ function CategoryPill({ active = false, count, label, onClick }: { active?: bool
     );
 }
 
-function FilterButton({ active = false, label }: { active?: boolean; label: string }) {
+function FilterButton({ active = false, count, label, onClick }: { active?: boolean; count?: number; label: string; onClick?: () => void }) {
     return (
         <button
-            className={`min-h-10 rounded-lg px-4 text-sm font-medium ${active ? 'bg-emerald-600 text-white' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
+            className={`inline-flex min-h-10 items-center gap-2 rounded-lg px-4 text-sm font-medium ${active ? 'bg-emerald-600 text-white' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
+            onClick={onClick}
             type="button"
         >
             {label}
+            {typeof count === 'number' && (
+                <span className={`rounded-full px-2 py-0.5 text-xs ${active ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                    {count}
+                </span>
+            )}
         </button>
     );
 }

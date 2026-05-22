@@ -5,9 +5,11 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\CheckoutPaymentRequest;
 use App\Http\Resources\OrderResource;
+use App\Models\CustomCake;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\User;
+use App\Models\Voucher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -90,6 +92,9 @@ class PaymentController extends Controller
             $items = collect($request->input('items', []));
             $user = $request->filled('user_id') ? User::query()->find($request->integer('user_id')) : null;
 
+            $customCakes = $this->validatedCustomCakesForCheckout($items, $user);
+
+            $this->consumeVoucher($request);
             $this->reserveProductStock($items);
 
             $order = Order::create(array_merge([
@@ -113,17 +118,104 @@ class PaymentController extends Controller
                 'created_date' => now(),
             ], $paymentDetails));
 
-            $order->items()->createMany($items->map(fn (array $item): array => [
-                'product_id' => $item['product_id'] ?? null,
-                'item_name' => $item['name'],
-                'item_description' => $item['description'] ?? null,
-                'item_image_url' => $item['image_url'] ?? null,
-                'quantity' => (int) $item['quantity'],
-                'price' => (float) $item['price'],
-            ])->all());
+            $order->items()->createMany($items->map(function (array $item) use ($customCakes): array {
+                $customCakeId = filled($item['custom_cake_id'] ?? null) ? (int) $item['custom_cake_id'] : null;
+                $customCake = $customCakeId ? $customCakes->get($customCakeId) : null;
+
+                return [
+                    'product_id' => $customCake ? null : ($item['product_id'] ?? null),
+                    'custom_cake_id' => $customCakeId,
+                    'item_name' => $item['name'],
+                    'item_description' => $item['description'] ?? null,
+                    'item_image_url' => $item['image_url'] ?? null,
+                    'quantity' => (int) $item['quantity'],
+                    'price' => $customCake ? (float) $customCake->estimated_price : (float) $item['price'],
+                ];
+            })->all());
+
+            if ($customCakes->isNotEmpty()) {
+                CustomCake::query()
+                    ->whereKey($customCakes->keys()->all())
+                    ->update([
+                        'status' => CustomCake::STATUS_CONVERTED_TO_ORDER,
+                        'converted_order_id' => $order->id,
+                        'updated_at' => now(),
+                    ]);
+            }
 
             return $order;
         });
+    }
+
+    /**
+     * @param  Collection<int, array<string, mixed>>  $items
+     * @return Collection<int, CustomCake>
+     */
+    private function validatedCustomCakesForCheckout(Collection $items, ?User $user): Collection
+    {
+        $customCakeIds = $items
+            ->pluck('custom_cake_id')
+            ->filter(fn ($customCakeId): bool => filled($customCakeId))
+            ->map(fn ($customCakeId): int => (int) $customCakeId)
+            ->unique()
+            ->values();
+
+        if ($customCakeIds->isEmpty()) {
+            return collect();
+        }
+
+        if (! $user) {
+            throw ValidationException::withMessages([
+                'items' => ['Vui long dang nhap de dat banh rieng da bao gia.'],
+            ]);
+        }
+
+        $customCakes = CustomCake::query()
+            ->whereIn('id', $customCakeIds)
+            ->lockForUpdate()
+            ->get()
+            ->keyBy('id');
+
+        if ($customCakes->count() !== $customCakeIds->count()) {
+            throw ValidationException::withMessages([
+                'items' => ['Yeu cau dat banh rieng khong ton tai.'],
+            ]);
+        }
+
+        $invalidCustomCake = $customCakes->first(
+            fn (CustomCake $customCake): bool => (int) $customCake->user_id !== (int) $user->id
+                || $customCake->status !== CustomCake::STATUS_QUOTED
+                || $customCake->estimated_price === null
+        );
+
+        if ($invalidCustomCake) {
+            throw ValidationException::withMessages([
+                'items' => ['Banh rieng chi co the dat sau khi tiem da bao gia.'],
+            ]);
+        }
+
+        return $customCakes;
+    }
+
+    private function consumeVoucher(CheckoutPaymentRequest $request): void
+    {
+        if (! $request->filled('voucher_code')) {
+            return;
+        }
+
+        $voucherCode = strtoupper(trim($request->string('voucher_code')->toString()));
+        $voucher = Voucher::query()
+            ->where('code', $voucherCode)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $voucher || ! $voucher->canBeApplied()) {
+            throw ValidationException::withMessages([
+                'voucher_code' => ['Ma giam gia khong hop le hoac da het luot su dung.'],
+            ]);
+        }
+
+        $voucher->increment('used_count');
     }
 
     /**

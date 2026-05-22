@@ -1,6 +1,8 @@
 <?php
 
 use App\Models\Order;
+use App\Models\Voucher;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
 beforeEach(function () {
@@ -84,6 +86,54 @@ it('uses the logged in user email as the order customer email', function () {
         'code' => $response->json('order_code'),
         'user_id' => $userId,
         'customer_email' => 'nguyenvana@example.com',
+    ]);
+});
+
+it('counts voucher usage when checkout uses a voucher', function () {
+    $voucher = Voucher::factory()->create([
+        'code' => 'SAVE20',
+        'discount_percent' => 20,
+        'usage_limit' => 3,
+        'used_count' => 1,
+        'is_active' => true,
+    ]);
+
+    $this->postJson('/api/payments/checkout', checkoutPayload([
+        'payment_method' => 'cod',
+        'amount' => 148000,
+        'order_code' => '20260521123456000010',
+        'voucher_code' => 'save20',
+    ]))->assertSuccessful();
+
+    expect($voucher->refresh()->used_count)->toBe(2)
+        ->and($voucher->remainingUses())->toBe(1);
+});
+
+it('rejects checkout when voucher has no remaining uses', function () {
+    Voucher::factory()->create([
+        'code' => 'DONE',
+        'discount_percent' => 20,
+        'usage_limit' => 2,
+        'used_count' => 2,
+        'is_active' => true,
+    ]);
+
+    $this->postJson('/api/payments/checkout', checkoutPayload([
+        'payment_method' => 'cod',
+        'amount' => 148000,
+        'order_code' => '20260521123456000011',
+        'voucher_code' => 'DONE',
+    ]))
+        ->assertUnprocessable()
+        ->assertInvalid(['voucher_code']);
+
+    $this->assertDatabaseMissing('orders', [
+        'code' => '20260521123456000011',
+    ]);
+
+    $this->assertDatabaseHas('products', [
+        'id' => 1,
+        'stock_quantity' => 10,
     ]);
 });
 
@@ -183,6 +233,18 @@ it('returns the latest payment status for an order code', function () {
         ->assertJsonPath('timeline.2.status', 'baking');
 });
 
+it('shows order timeline timestamps in Vietnam timezone', function () {
+    $order = Order::create(orderPayload([
+        'code' => '20260522180816000006',
+        'order_status' => 'pending',
+        'created_date' => Carbon::parse('2026-05-22 11:08:00', 'UTC'),
+    ]));
+
+    $this->getJson('/api/payments/orders/'.$order->code)
+        ->assertSuccessful()
+        ->assertJsonPath('timeline.0.note', '22/05/2026 18:08');
+});
+
 it('lists orders and advances order status for admin management', function () {
     $order = Order::create(orderPayload([
         'code' => '20260521123456000004',
@@ -206,6 +268,33 @@ it('lists orders and advances order status for admin management', function () {
         ->assertJsonPath('order.order_status_label', 'Đã xác nhận');
 
     expect($order->refresh()->order_status)->toBe('confirmed');
+});
+
+it('filters and paginates admin orders by status', function () {
+    foreach (range(1, 6) as $index) {
+        Order::create(orderPayload([
+            'code' => '2026052112345601'.str_pad((string) $index, 6, '0', STR_PAD_LEFT),
+            'order_status' => 'shipping',
+        ]));
+    }
+
+    Order::create(orderPayload([
+        'code' => '2026052112345601000007',
+        'order_status' => 'delivered',
+    ]));
+
+    $this->getJson('/api/orders?status=shipping&per_page=5')
+        ->assertSuccessful()
+        ->assertJsonCount(5, 'data')
+        ->assertJsonPath('meta.total', 6)
+        ->assertJsonPath('meta.per_page', 5)
+        ->assertJsonPath('status_counts.shipping', 6)
+        ->assertJsonPath('status_counts.delivered', 1);
+
+    $this->getJson('/api/orders?status=shipping&page=2&per_page=5')
+        ->assertSuccessful()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('meta.current_page', 2);
 });
 
 it('lists only orders that belong to the requested user history', function () {

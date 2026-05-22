@@ -21,6 +21,7 @@ export function mapCakeProductToBakeryProduct(product: CakeProduct): BakeryProdu
         categoryId: product.category_id,
         imageUrl: product.image_url,
         stockQuantity: product.stock_quantity,
+        soldCount: product.sold_count ?? 0,
         tag: getProductTag(product),
         tagClass: getProductTagClass(product),
     };

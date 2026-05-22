@@ -15,6 +15,7 @@ export type CakeProduct = {
     image_url?: string | null;
     size_inch?: number | null;
     stock_quantity: number;
+    sold_count?: number;
     tag?: string | null;
     is_available: boolean;
     category?: ProductCategory;
