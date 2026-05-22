@@ -170,10 +170,3 @@ export const blogPosts = [
 export function formatMoney(amount: number): string {
     return `${amount.toLocaleString('vi-VN')}đ`;
 }
-
-export function defaultCart(): CartItem[] {
-    return [
-        { ...products[0], qty: 1 },
-        { ...products[1], qty: 1 },
-    ];
-}

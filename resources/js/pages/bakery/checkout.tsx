@@ -3,7 +3,9 @@ import { useEffect, useMemo, useState } from 'react';
 
 import BakeryLayout from '@/components/bakery/bakery-layout';
 import { BakeryCard, BakeryFooter, Breadcrumbs } from '@/components/bakery/shared';
-import { CartItem, defaultCart, formatMoney } from '@/data/bakery';
+import { CartItem, formatMoney } from '@/data/bakery';
+import { readAuthUser } from '@/lib/auth-api';
+import { rememberOrderCode } from '@/lib/order-history';
 import { checkoutPayment, type PaymentMethod } from '@/lib/payment-api';
 import type { Voucher } from '@/lib/voucher-api';
 
@@ -15,7 +17,6 @@ type DeliverySlot = {
 type CustomerInfo = {
     name: string;
     phone: string;
-    email: string;
     address: string;
     district: string;
     note: string;
@@ -46,7 +47,6 @@ export default function Checkout() {
     const [customerInfo, setCustomerInfo] = useState<CustomerInfo>({
         name: '',
         phone: '',
-        email: '',
         address: '',
         district: '',
         note: '',
@@ -58,10 +58,10 @@ export default function Checkout() {
     const availableDeliverySlots = useMemo(() => getAvailableDeliverySlots(deliveryDate), [deliveryDate]);
 
     useEffect(() => {
-        const cart = JSON.parse(localStorage.getItem('fleur-cart') ?? 'null') as CartItem[] | null;
+        const cart = removeLegacyDefaultCart(JSON.parse(localStorage.getItem('fleur-cart') ?? 'null') as CartItem[] | null);
         const storedVoucher = JSON.parse(localStorage.getItem('fleur-applied-voucher') ?? 'null') as Voucher | null;
 
-        setItems(cart?.length ? cart : defaultCart());
+        setItems(cart ?? []);
         setAppliedVoucher(storedVoucher);
     }, []);
 
@@ -92,22 +92,39 @@ export default function Checkout() {
             return;
         }
 
+        if (items.length === 0) {
+            setPaymentError('Giỏ hàng đang trống.');
+
+            return;
+        }
+
         setIsCheckingOut(true);
 
         try {
+            const authUser = readAuthUser();
             const response = await checkoutPayment({
+                user_id: authUser?.id,
                 payment_method: paymentMethod,
                 amount: total,
                 customer_name: customerInfo.name.trim(),
                 customer_phone: customerInfo.phone.trim(),
-                customer_email: customerInfo.email.trim(),
                 customer_address: customerInfo.address.trim(),
                 customer_district: customerInfo.district,
                 customer_note: customerInfo.note.trim() || undefined,
                 delivery_date: deliveryDate,
                 delivery_slot: deliverySlot,
+                items: items.map((item) => ({
+                    product_id: item.id,
+                    name: item.name,
+                    description: item.desc,
+                    image_url: item.imageUrl,
+                    quantity: item.qty,
+                    price: item.priceN,
+                })),
             });
 
+            rememberOrderCode(response.order_code);
+            clearCheckoutStorage();
             window.location.href = response.payment_url;
         } catch (error) {
             setPaymentError(error instanceof Error ? error.message : 'Không tạo được thanh toán.');
@@ -130,12 +147,6 @@ export default function Checkout() {
 
         if (!customerInfo.phone.trim()) {
             nextErrors.phone = 'Vui lòng nhập số điện thoại.';
-        }
-
-        if (!customerInfo.email.trim()) {
-            nextErrors.email = 'Vui lòng nhập email.';
-        } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerInfo.email.trim())) {
-            nextErrors.email = 'Email chưa đúng định dạng.';
         }
 
         if (!customerInfo.address.trim()) {
@@ -194,15 +205,6 @@ export default function Checkout() {
                                     value={customerInfo.phone}
                                 />
                             </div>
-                            <Field
-                                error={customerErrors.email}
-                                label="Email"
-                                onChange={(value) => updateCustomerInfo('email', value)}
-                                placeholder="email@example.com"
-                                required
-                                type="email"
-                                value={customerInfo.email}
-                            />
                             <Field
                                 error={customerErrors.address}
                                 label="Địa chỉ"
@@ -352,6 +354,12 @@ export default function Checkout() {
     );
 }
 
+function clearCheckoutStorage() {
+    localStorage.removeItem('fleur-cart');
+    localStorage.removeItem('fleur-applied-voucher');
+    window.dispatchEvent(new Event('fleur-cart-updated'));
+}
+
 function Field({
     error,
     label,
@@ -453,6 +461,23 @@ function PaymentMethodButton({
             <span className="mt-1 block text-[11px] text-[var(--bakery-gray)]">{description}</span>
         </button>
     );
+}
+
+function removeLegacyDefaultCart(cart: CartItem[] | null): CartItem[] | null {
+    const isLegacyDefaultCart =
+        cart?.length === 2 &&
+        cart[0]?.name === 'Sakura Mousse Cake' &&
+        cart[1]?.name === 'Matcha Lavender Roll' &&
+        cart.every((item) => item.qty === 1);
+
+    if (isLegacyDefaultCart) {
+        localStorage.removeItem('fleur-cart');
+        window.dispatchEvent(new Event('fleur-cart-updated'));
+
+        return [];
+    }
+
+    return cart;
 }
 
 function getAvailableDeliverySlots(deliveryDate: string): DeliverySlot[] {

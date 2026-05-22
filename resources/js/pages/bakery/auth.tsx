@@ -1,14 +1,14 @@
 import { Head, router } from '@inertiajs/react';
-import { FormEvent, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 
 import BakeryLayout from '@/components/bakery/bakery-layout';
-import { ApiRequestError, changePassword, isAdminUser, login, register, rememberAuthUser } from '@/lib/auth-api';
+import { ApiRequestError, changePassword, googleLogin, isAdminUser, login, register, rememberAuthUser } from '@/lib/auth-api';
 
 type AuthMode = 'login' | 'register' | 'forgot';
 
 type AuthForm = {
     username: string;
-    phone_number: string;
+    email: string;
     password: string;
     password_confirmation: string;
     new_password: string;
@@ -17,19 +17,117 @@ type AuthForm = {
 
 const initialForm: AuthForm = {
     username: '',
-    phone_number: '',
+    email: '',
     password: '',
     password_confirmation: '',
     new_password: '',
     new_password_confirmation: '',
 };
 
+type GoogleCredentialResponse = {
+    credential?: string;
+};
+
+declare global {
+    interface Window {
+        google?: {
+            accounts: {
+                id: {
+                    initialize: (config: { callback: (response: GoogleCredentialResponse) => void; client_id: string; locale?: string }) => void;
+                    renderButton: (
+                        parent: HTMLElement,
+                        options: {
+                            logo_alignment?: 'left' | 'center';
+                            shape?: 'rectangular' | 'pill' | 'circle' | 'square';
+                            size?: 'large' | 'medium' | 'small';
+                            text?: 'signin_with' | 'signup_with' | 'continue_with' | 'signin';
+                            theme?: 'outline' | 'filled_blue' | 'filled_black';
+                            type?: 'standard' | 'icon';
+                            width?: number;
+                        },
+                    ) => void;
+                };
+            };
+        };
+    }
+}
+
 export default function Auth() {
     const [mode, setMode] = useState<AuthMode>('login');
     const [form, setForm] = useState<AuthForm>(initialForm);
     const [errors, setErrors] = useState<Record<string, string>>({});
+    const googleButtonRef = useRef<HTMLDivElement | null>(null);
+    const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
     const [status, setStatus] = useState<string | null>(null);
     const [processing, setProcessing] = useState(false);
+
+    const handleGoogleCredential = useCallback(async (credentialResponse: GoogleCredentialResponse) => {
+        if (!credentialResponse.credential) {
+            setStatus('Khong nhan duoc thong tin dang nhap Google.');
+
+            return;
+        }
+
+        setErrors({});
+        setStatus(null);
+        setProcessing(true);
+
+        try {
+            const response = await googleLogin({
+                credential: credentialResponse.credential,
+            });
+
+            rememberAuthUser(response.user);
+            router.visit(isAdminUser(response.user) ? '/admin' : '/');
+        } catch (error) {
+            setStatus(error instanceof Error ? error.message : 'Khong dang nhap Google duoc, vui long thu lai.');
+        } finally {
+            setProcessing(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (mode !== 'login' || !googleClientId || !googleButtonRef.current) {
+            return;
+        }
+
+        let isActive = true;
+
+        loadGoogleIdentityScript()
+            .then(() => {
+                if (!isActive || !window.google || !googleButtonRef.current) {
+                    return;
+                }
+
+                window.google.accounts.id.initialize({
+                    callback: handleGoogleCredential,
+                    client_id: googleClientId,
+                    locale: 'vi',
+                });
+
+                const buttonWidth = Math.min(400, googleButtonRef.current.clientWidth || 400);
+
+                googleButtonRef.current.innerHTML = '';
+                window.google.accounts.id.renderButton(googleButtonRef.current, {
+                    logo_alignment: 'center',
+                    shape: 'pill',
+                    size: 'large',
+                    text: 'continue_with',
+                    theme: 'outline',
+                    type: 'standard',
+                    width: buttonWidth,
+                });
+            })
+            .catch(() => {
+                if (isActive) {
+                    setStatus('Khong tai duoc Google Sign-In. Vui long thu lai sau.');
+                }
+            });
+
+        return () => {
+            isActive = false;
+        };
+    }, [googleClientId, handleGoogleCredential, mode]);
 
     async function submit(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
@@ -62,7 +160,7 @@ export default function Auth() {
             if (mode === 'register') {
                 const response = await register({
                     username: form.username,
-                    phone_number: form.phone_number,
+                    email: form.email,
                     password: form.password,
                 });
 
@@ -74,7 +172,7 @@ export default function Auth() {
 
             const response = await changePassword({
                 username: form.username,
-                phone_number: form.phone_number,
+                email: form.email,
                 new_password: form.new_password,
             });
 
@@ -132,9 +230,9 @@ export default function Auth() {
                     </h1>
                     <p className="mt-2 mb-8 text-sm text-[var(--bakery-gray)]">
                         {mode === 'register'
-                            ? 'Đăng ký bằng tên đăng nhập, số điện thoại và mật khẩu.'
+                            ? 'Đăng ký bằng tên đăng nhập, email và mật khẩu.'
                             : mode === 'forgot'
-                              ? 'Nhập tên đăng nhập, số điện thoại và mật khẩu mới.'
+                              ? 'Nhập tên đăng nhập, email và mật khẩu mới.'
                               : 'Đăng nhập bằng tài khoản đã đăng ký.'}
                     </p>
 
@@ -155,11 +253,12 @@ export default function Auth() {
 
                         {mode !== 'login' && (
                             <Field
-                                error={errors.phone_number}
-                                label="Số điện thoại"
-                                onChange={(value) => updateField('phone_number', value)}
-                                placeholder="0901 234 567"
-                                value={form.phone_number}
+                                error={errors.email}
+                                label="Email"
+                                onChange={(value) => updateField('email', value)}
+                                placeholder="ban@example.com"
+                                type="email"
+                                value={form.email}
                             />
                         )}
 
@@ -228,9 +327,18 @@ export default function Auth() {
                             <div className="my-5 flex items-center gap-3 text-[12px] text-[var(--bakery-gray)] before:h-px before:flex-1 before:bg-[var(--bakery-border)] after:h-px after:flex-1 after:bg-[var(--bakery-border)]">
                                 hoặc
                             </div>
-                            <button className="bakery-btn bakery-btn-secondary w-full" type="button">
-                                🌐 Tiếp tục với Google
-                            </button>
+                            {googleClientId ? (
+                                <div className={`flex min-h-11 w-full justify-center ${processing ? 'pointer-events-none opacity-70' : ''}`} ref={googleButtonRef} />
+                            ) : (
+                                <button
+                                    className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full border border-[var(--bakery-border)] bg-white px-5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-70"
+                                    onClick={() => setStatus('Vui long cau hinh VITE_GOOGLE_CLIENT_ID de bat dang nhap Google.')}
+                                    type="button"
+                                >
+                                    <GoogleIcon />
+                                    Tiếp tục với Google
+                                </button>
+                            )}
                         </>
                     )}
 
@@ -252,6 +360,46 @@ export default function Auth() {
                 </div>
             </div>
         </BakeryLayout>
+    );
+}
+
+function loadGoogleIdentityScript(): Promise<void> {
+    const existingScript = document.getElementById('google-identity-services');
+
+    if (window.google) {
+        return Promise.resolve();
+    }
+
+    if (existingScript) {
+        return new Promise((resolve, reject) => {
+            existingScript.addEventListener('load', () => resolve(), { once: true });
+            existingScript.addEventListener('error', () => reject(), { once: true });
+        });
+    }
+
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.async = true;
+        script.defer = true;
+        script.id = 'google-identity-services';
+        script.src = 'https://accounts.google.com/gsi/client';
+        script.addEventListener('load', () => resolve(), { once: true });
+        script.addEventListener('error', () => reject(), { once: true });
+        document.head.appendChild(script);
+    });
+}
+
+function GoogleIcon() {
+    return (
+        <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 18 18">
+            <path
+                d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62Z"
+                fill="#4285F4"
+            />
+            <path d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.33-1.58-5.04-3.7H.94v2.33A9 9 0 0 0 9 18Z" fill="#34A853" />
+            <path d="M3.96 10.72A5.41 5.41 0 0 1 3.68 9c0-.6.1-1.18.28-1.72V4.95H.94A9 9 0 0 0 0 9c0 1.45.34 2.82.94 4.05l3.02-2.33Z" fill="#FBBC05" />
+            <path d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58A8.65 8.65 0 0 0 9 0 9 9 0 0 0 .94 4.95l3.02 2.33C4.67 5.16 6.66 3.58 9 3.58Z" fill="#EA4335" />
+        </svg>
     );
 }
 
@@ -286,8 +434,10 @@ function validate(mode: AuthMode, form: AuthForm): Record<string, string> {
         nextErrors.username = 'Vui lòng nhập tên đăng nhập.';
     }
 
-    if (mode !== 'login' && !form.phone_number.trim()) {
-        nextErrors.phone_number = 'Vui lòng nhập số điện thoại.';
+    if (mode !== 'login' && !form.email.trim()) {
+        nextErrors.email = 'Vui lòng nhập email.';
+    } else if (mode !== 'login' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+        nextErrors.email = 'Email chưa đúng định dạng.';
     }
 
     if (mode !== 'forgot' && form.password.length < 6) {

@@ -18,8 +18,8 @@ type ApiUser = {
     id: number;
     username?: string;
     name?: string;
+    email?: string;
     role?: string;
-    phone_number?: string;
     login_by_google?: boolean;
     created_at?: string;
     updated_at?: string;
@@ -27,7 +27,7 @@ type ApiUser = {
 
 const defaultRegister = {
     username: 'new_user',
-    phone_number: '0900000009',
+    email: 'new_user@example.com',
     password: 'secret123',
 };
 
@@ -38,13 +38,12 @@ const defaultLogin = {
 
 const defaultForgotPassword = {
     username: 'new_user',
-    phone_number: '0900000009',
+    email: 'new_user@example.com',
     new_password: 'newsecret123',
 };
 
 const defaultGoogleLogin = {
-    username: 'google_user',
-    phone_number: '0900000010',
+    credential: 'paste-google-id-token-here',
 };
 
 const prettyJson = (value: unknown) => JSON.stringify(value, null, 2);
@@ -303,7 +302,7 @@ export default function ApiTester() {
                                                     </div>
                                                     <div className="text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-xs">
                                                         <span>ID {user.id}</span>
-                                                        {user.phone_number && <span>{user.phone_number}</span>}
+                                                        {user.email && <span>{user.email}</span>}
                                                         <span>Google: {user.login_by_google ? '1' : '0'}</span>
                                                     </div>
                                                 </div>

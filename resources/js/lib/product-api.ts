@@ -24,6 +24,38 @@ type ResourceCollection<T> = {
     data: T[];
 };
 
+export type PaginationLinks = {
+    first: string | null;
+    last: string | null;
+    prev: string | null;
+    next: string | null;
+};
+
+export type PaginationMeta = {
+    current_page: number;
+    from: number | null;
+    last_page: number;
+    path: string;
+    per_page: number;
+    to: number | null;
+    total: number;
+};
+
+export type PaginatedResourceCollection<T> = ResourceCollection<T> & {
+    links: PaginationLinks;
+    meta: PaginationMeta;
+};
+
+export type ProductListFilters = {
+    keyword?: string;
+    category_id?: number | string;
+    min_price?: number | string;
+    max_price?: number | string;
+    is_available?: boolean | number | string;
+    page?: number;
+    per_page?: number;
+};
+
 type CategoryResponse = {
     message: string;
     category: ProductCategory;
@@ -59,6 +91,15 @@ export async function listProducts(): Promise<CakeProduct[]> {
     const response = await requestJson<ResourceCollection<CakeProduct>>('/api/products');
 
     return response.data;
+}
+
+export async function listPaginatedProducts(filters: ProductListFilters = {}): Promise<PaginatedResourceCollection<CakeProduct>> {
+    const queryString = buildQueryString({
+        per_page: 8,
+        ...filters,
+    });
+
+    return requestJson<PaginatedResourceCollection<CakeProduct>>(`/api/products${queryString}`);
 }
 
 export async function createProduct(payload: {
@@ -106,6 +147,22 @@ export async function deleteProduct(productId: number): Promise<void> {
     await requestJson<{ message: string }>(`/api/products/${productId}`, {
         method: 'DELETE',
     });
+}
+
+function buildQueryString(filters: ProductListFilters): string {
+    const searchParams = new URLSearchParams();
+
+    Object.entries(filters).forEach(([key, value]) => {
+        if (value === undefined || value === null || value === '') {
+            return;
+        }
+
+        searchParams.set(key, String(value));
+    });
+
+    const queryString = searchParams.toString();
+
+    return queryString ? `?${queryString}` : '';
 }
 
 async function requestJson<T>(url: string, options: RequestInit = {}): Promise<T> {

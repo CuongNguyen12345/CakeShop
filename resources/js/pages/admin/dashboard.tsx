@@ -1,5 +1,16 @@
 import { Head, Link, router } from '@inertiajs/react';
 import {
+    CategoryScale,
+    Chart as ChartJS,
+    Filler,
+    LinearScale,
+    LineController,
+    LineElement,
+    PointElement,
+    Tooltip,
+    type TooltipItem,
+} from 'chart.js';
+import {
     BarChart3,
     CakeSlice,
     CheckCircle2,
@@ -7,6 +18,7 @@ import {
     Clock3,
     EyeOff,
     Home,
+    LogOut,
     Package,
     PackagePlus,
     Pencil,
@@ -18,34 +30,33 @@ import {
     Trash2,
     TrendingUp,
     Truck,
-    Users,
 } from 'lucide-react';
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 
-import { isAdminUser, readAuthUser } from '@/lib/auth-api';
+import { forgetAuthUser, isAdminUser, readAuthUser } from '@/lib/auth-api';
+import { listOrders, updateOrderStatus, type AdminOrder, type OrderStatusMap } from '@/lib/order-api';
 import {
     createCategory,
     createProduct,
     deleteCategory,
     deleteProduct,
     listCategories,
+    listPaginatedProducts,
     listProducts,
     updateProduct,
     type CakeProduct,
+    type PaginationMeta,
+    type ProductListFilters,
     type ProductCategory,
 } from '@/lib/product-api';
+import { listRevenueStats, type RevenuePeriod, type RevenueStats } from '@/lib/revenue-api';
 import { createVoucher, deleteVoucher, listVouchers, updateVoucher, type Voucher } from '@/lib/voucher-api';
 
 type AdminTab = 'overview' | 'products' | 'vouchers' | 'orders' | 'revenue';
 
-type Order = {
-    code: string;
-    customer: string;
-    item: string;
-    total: string;
-    status: string;
-    time: string;
-};
+const PRODUCT_PAGE_SIZE = 8;
+
+ChartJS.register(CategoryScale, LinearScale, LineController, PointElement, LineElement, Filler, Tooltip);
 
 const tabs: { id: AdminTab; label: string; icon: ReactNode }[] = [
     { id: 'overview', label: 'Tổng quan', icon: <Home size={18} /> },
@@ -55,36 +66,29 @@ const tabs: { id: AdminTab; label: string; icon: ReactNode }[] = [
     { id: 'revenue', label: 'Thống kê doanh thu', icon: <TrendingUp size={18} /> },
 ];
 
-const orders: Order[] = [
-    { code: '#FL2025-08471', customer: 'Lan Anh', item: 'Sakura Mousse Cake', total: '185.000đ', status: 'Đang nướng bánh', time: '09:15' },
-    { code: '#FL2025-08472', customer: 'Minh Phúc', item: 'Matcha Lavender Roll x2', total: '290.000đ', status: 'Đang giao', time: '10:05' },
-    { code: '#FL2025-08473', customer: 'Thu Hương', item: 'Bánh Sinh Nhật 8"', total: '450.000đ', status: 'Đã giao', time: '11:20' },
-    { code: '#FL2025-08474', customer: 'Hoàng Nam', item: 'Violet Cupcake x6', total: '120.000đ', status: 'Chờ xác nhận', time: '12:40' },
-];
-
-const revenue = [
-    { label: 'T2', value: 32, amount: '5.2tr' },
-    { label: 'T3', value: 44, amount: '7.1tr' },
-    { label: 'T4', value: 38, amount: '6.4tr' },
-    { label: 'T5', value: 62, amount: '9.8tr' },
-    { label: 'T6', value: 74, amount: '11.3tr' },
-    { label: 'T7', value: 96, amount: '14.7tr' },
-    { label: 'CN', value: 68, amount: '10.1tr' },
-];
-
 export default function AdminDashboard() {
     const [activeTab, setActiveTab] = useState<AdminTab>('overview');
     const [categories, setCategories] = useState<ProductCategory[]>([]);
     const [isLoadingProducts, setIsLoadingProducts] = useState(false);
-    const [period, setPeriod] = useState('Ngày');
+    const [period, setPeriod] = useState<RevenuePeriod>('day');
     const [productError, setProductError] = useState('');
     const [productMessage, setProductMessage] = useState('');
+    const [productPagination, setProductPagination] = useState<PaginationMeta | null>(null);
     const [products, setProducts] = useState<CakeProduct[]>([]);
     const [hasCheckedAuth, setHasCheckedAuth] = useState(false);
     const [isLoadingVouchers, setIsLoadingVouchers] = useState(false);
     const [voucherError, setVoucherError] = useState('');
     const [voucherMessage, setVoucherMessage] = useState('');
     const [vouchers, setVouchers] = useState<Voucher[]>([]);
+    const [overviewProducts, setOverviewProducts] = useState<CakeProduct[]>([]);
+    const [orders, setOrders] = useState<AdminOrder[]>([]);
+    const [orderStatuses, setOrderStatuses] = useState<OrderStatusMap>({});
+    const [isLoadingOrders, setIsLoadingOrders] = useState(false);
+    const [orderError, setOrderError] = useState('');
+    const [orderMessage, setOrderMessage] = useState('');
+    const [revenueStats, setRevenueStats] = useState<RevenueStats | null>(null);
+    const [isLoadingRevenue, setIsLoadingRevenue] = useState(false);
+    const [revenueError, setRevenueError] = useState('');
 
     useEffect(() => {
         const authUser = readAuthUser();
@@ -104,21 +108,32 @@ export default function AdminDashboard() {
         setHasCheckedAuth(true);
     }, []);
 
-    const refreshProductManagement = async () => {
+    const refreshProductManagement = useCallback(async (filters: ProductListFilters = { page: 1, per_page: PRODUCT_PAGE_SIZE }) => {
         setIsLoadingProducts(true);
         setProductError('');
 
         try {
-            const [nextCategories, nextProducts] = await Promise.all([listCategories(), listProducts()]);
+            const nextFilters = {
+                ...filters,
+                page: filters.page ?? 1,
+                per_page: filters.per_page ?? PRODUCT_PAGE_SIZE,
+            };
+            const [nextCategories, nextProducts, nextOverviewProducts] = await Promise.all([
+                listCategories(),
+                listPaginatedProducts(nextFilters),
+                listProducts(),
+            ]);
 
             setCategories(nextCategories);
-            setProducts(nextProducts);
+            setOverviewProducts(nextOverviewProducts);
+            setProductPagination(nextProducts.meta);
+            setProducts(nextProducts.data);
         } catch (error) {
-            setProductError(error instanceof Error ? error.message : 'Khong tai duoc du lieu san pham.');
+            setProductError(error instanceof Error ? error.message : 'Không tải được dữ liệu sản phẩm.');
         } finally {
             setIsLoadingProducts(false);
         }
-    };
+    }, []);
 
     const refreshVouchers = async () => {
         setIsLoadingVouchers(true);
@@ -127,11 +142,40 @@ export default function AdminDashboard() {
         try {
             setVouchers(await listVouchers());
         } catch (error) {
-            setVoucherError(error instanceof Error ? error.message : 'Khong tai duoc du lieu voucher.');
+            setVoucherError(error instanceof Error ? error.message : 'Không tải được dữ liệu voucher.');
         } finally {
             setIsLoadingVouchers(false);
         }
     };
+
+    const refreshOrders = async () => {
+        setIsLoadingOrders(true);
+        setOrderError('');
+
+        try {
+            const response = await listOrders();
+
+            setOrders(response.data);
+            setOrderStatuses(response.statuses);
+        } catch (error) {
+            setOrderError(error instanceof Error ? error.message : 'Không tải được dữ liệu đơn hàng.');
+        } finally {
+            setIsLoadingOrders(false);
+        }
+    };
+
+    const refreshRevenueStats = useCallback(async (nextPeriod: string) => {
+        setIsLoadingRevenue(true);
+        setRevenueError('');
+
+        try {
+            setRevenueStats(await listRevenueStats(periodToApiPeriod(nextPeriod)));
+        } catch (error) {
+            setRevenueError(error instanceof Error ? error.message : 'Không tải được thống kê doanh thu.');
+        } finally {
+            setIsLoadingRevenue(false);
+        }
+    }, []);
 
     useEffect(() => {
         if (!hasCheckedAuth) {
@@ -140,7 +184,16 @@ export default function AdminDashboard() {
 
         void refreshProductManagement();
         void refreshVouchers();
-    }, [hasCheckedAuth]);
+        void refreshOrders();
+    }, [hasCheckedAuth, refreshProductManagement]);
+
+    useEffect(() => {
+        if (!hasCheckedAuth) {
+            return;
+        }
+
+        void refreshRevenueStats(period);
+    }, [hasCheckedAuth, period, refreshRevenueStats]);
 
     if (!hasCheckedAuth) {
         return (
@@ -152,6 +205,10 @@ export default function AdminDashboard() {
     }
 
     const activeTabLabel = tabs.find((tab) => tab.id === activeTab)?.label ?? 'Tổng quan';
+    const handleLogout = () => {
+        forgetAuthUser();
+        router.visit('/auth', { replace: true });
+    };
 
     return (
         <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -200,6 +257,14 @@ export default function AdminDashboard() {
                                     Trang user
                                 </Link>
                                 <button
+                                    className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-rose-200 bg-white px-5 py-2.5 text-sm font-medium text-rose-700 shadow-sm hover:bg-rose-50"
+                                    onClick={handleLogout}
+                                    type="button"
+                                >
+                                    <LogOut size={17} />
+                                    Đăng xuất
+                                </button>
+                                <button
                                     className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-emerald-700"
                                     onClick={() => setActiveTab('products')}
                                     type="button"
@@ -215,8 +280,10 @@ export default function AdminDashboard() {
                         {activeTab === 'overview' && (
                             <OverviewTab
                                 categories={categories}
+                                orders={orders}
                                 period={period}
-                                products={products}
+                                products={overviewProducts}
+                                revenueStats={revenueStats}
                                 setActiveTab={setActiveTab}
                                 setPeriod={setPeriod}
                             />
@@ -227,6 +294,7 @@ export default function AdminDashboard() {
                                 error={productError}
                                 isLoading={isLoadingProducts}
                                 message={productMessage}
+                                pagination={productPagination}
                                 products={products}
                                 refreshProductManagement={refreshProductManagement}
                                 setMessage={setProductMessage}
@@ -242,8 +310,26 @@ export default function AdminDashboard() {
                                 vouchers={vouchers}
                             />
                         )}
-                        {activeTab === 'orders' && <OrdersTab />}
-                        {activeTab === 'revenue' && <RevenueTab period={period} products={products} setPeriod={setPeriod} />}
+                        {activeTab === 'orders' && (
+                            <OrdersTab
+                                error={orderError}
+                                isLoading={isLoadingOrders}
+                                message={orderMessage}
+                                orders={orders}
+                                refreshOrders={refreshOrders}
+                                setMessage={setOrderMessage}
+                                statuses={orderStatuses}
+                            />
+                        )}
+                        {activeTab === 'revenue' && (
+                            <RevenueTab
+                                error={revenueError}
+                                isLoading={isLoadingRevenue}
+                                period={period}
+                                setPeriod={setPeriod}
+                                stats={revenueStats}
+                            />
+                        )}
                     </div>
                 </main>
             </div>
@@ -253,19 +339,24 @@ export default function AdminDashboard() {
 
 function OverviewTab({
     categories,
+    orders,
     period,
     products,
+    revenueStats,
     setActiveTab,
     setPeriod,
 }: {
     categories: ProductCategory[];
-    period: string;
+    orders: AdminOrder[];
+    period: RevenuePeriod;
     products: CakeProduct[];
+    revenueStats: RevenueStats | null;
     setActiveTab: (tab: AdminTab) => void;
-    setPeriod: (period: string) => void;
+    setPeriod: (period: RevenuePeriod) => void;
 }) {
     const activeProducts = products.filter((product) => product.is_available);
     const hiddenProducts = products.filter((product) => !product.is_available);
+    const shippingOrders = orders.filter((order) => order.order_status === 'shipping').length;
 
     return (
         <>
@@ -276,8 +367,13 @@ function OverviewTab({
                     value={`${activeProducts.length}`}
                     note={`${categories.length} danh mục`}
                 />
-                <MetricCard icon={<ShoppingBag size={20} />} label="Đơn hàng hôm nay" value="32" note="8 đơn đang giao" />
-                <MetricCard icon={<BarChart3 size={20} />} label="Doanh thu hôm nay" value="12.8tr" note="+18% so với hôm qua" />
+                <MetricCard icon={<ShoppingBag size={20} />} label="Đơn hàng hôm nay" value={`${orders.length}`} note={`${shippingOrders} đơn đang giao`} />
+                <MetricCard
+                    icon={<BarChart3 size={20} />}
+                    label="Doanh thu kỳ này"
+                    value={revenueStats ? formatCompactCurrency(revenueStats.summary.total_revenue) : '0đ'}
+                    note={revenueStats ? formatChangeNote(revenueStats.summary.revenue_change_percent) : 'Đang cập nhật'}
+                />
                 <MetricCard icon={<CakeSlice size={20} />} label="Đang ẩn" value={`${hiddenProducts.length}`} note="Có thể mở bán lại" />
             </section>
 
@@ -297,7 +393,7 @@ function OverviewTab({
                     title="Doanh thu nhanh"
                     subtitle="Biểu đồ bán hàng trong tuần và sản phẩm bán chạy."
                 >
-                    <RevenueChart period={period} setPeriod={setPeriod} />
+                    <RevenueChart period={period} setPeriod={setPeriod} stats={revenueStats} />
                 </Panel>
             </section>
 
@@ -307,7 +403,7 @@ function OverviewTab({
                 title="Đơn hàng mới"
                 subtitle="Theo dõi các đơn cần xác nhận, đang làm bánh và đang giao."
             >
-                <OrderList compact />
+                <OrderList compact orders={orders} />
             </Panel>
         </>
     );
@@ -318,6 +414,7 @@ function ProductsTab({
     error,
     isLoading,
     message,
+    pagination,
     products,
     refreshProductManagement,
     setMessage,
@@ -326,8 +423,9 @@ function ProductsTab({
     error: string;
     isLoading: boolean;
     message: string;
+    pagination: PaginationMeta | null;
     products: CakeProduct[];
-    refreshProductManagement: () => Promise<void>;
+    refreshProductManagement: (filters?: ProductListFilters) => Promise<void>;
     setMessage: (message: string) => void;
 }) {
     const [newCategoryName, setNewCategoryName] = useState('');
@@ -343,10 +441,16 @@ function ProductsTab({
         tag: '',
         is_available: true,
     });
-    const [selectedCategoryId, setSelectedCategoryId] = useState<number | 'all'>('all');
+    const [filters, setFilters] = useState({
+        keyword: '',
+        category_id: 'all' as number | 'all',
+        min_price: '',
+        max_price: '',
+    });
+    const selectedCategoryId = filters.category_id;
     const activeProducts = products.filter((product) => product.is_available);
     const hiddenProducts = products.filter((product) => !product.is_available);
-    const filteredProducts = selectedCategoryId === 'all' ? products : products.filter((product) => product.category_id === selectedCategoryId);
+    const currentPage = pagination?.current_page ?? 1;
 
     useEffect(() => {
         if (categories.length > 0 && !productForm.category_id) {
@@ -357,7 +461,49 @@ function ProductsTab({
         }
     }, [categories, productForm.category_id]);
 
-    const countProductsByCategory = (categoryId: number) => products.filter((product) => product.category_id === categoryId).length;
+    const countProductsByCategory = (category: ProductCategory) =>
+        typeof category.products_count === 'number' ? category.products_count : products.filter((product) => product.category_id === category.id).length;
+
+    const buildProductListFilters = (nextFilters = filters, page = 1): ProductListFilters => ({
+        keyword: nextFilters.keyword.trim(),
+        category_id: nextFilters.category_id === 'all' ? undefined : nextFilters.category_id,
+        min_price: nextFilters.min_price,
+        max_price: nextFilters.max_price,
+        page,
+        per_page: PRODUCT_PAGE_SIZE,
+    });
+
+    const handleApplyFilters = async (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+
+        await refreshProductManagement(buildProductListFilters(filters, 1));
+    };
+
+    const handleResetFilters = async () => {
+        const nextFilters = {
+            keyword: '',
+            category_id: 'all' as number | 'all',
+            min_price: '',
+            max_price: '',
+        };
+
+        setFilters(nextFilters);
+        await refreshProductManagement(buildProductListFilters(nextFilters, 1));
+    };
+
+    const handleSelectCategory = async (categoryId: number | 'all') => {
+        const nextFilters = {
+            ...filters,
+            category_id: categoryId,
+        };
+
+        setFilters(nextFilters);
+        await refreshProductManagement(buildProductListFilters(nextFilters, 1));
+    };
+
+    const handlePageChange = async (page: number) => {
+        await refreshProductManagement(buildProductListFilters(filters, page));
+    };
 
     const resetProductForm = () => {
         setEditingProductId(null);
@@ -388,7 +534,7 @@ function ProductsTab({
 
         try {
             await createCategory({ name: trimmedName });
-            await refreshProductManagement();
+            await refreshProductManagement(buildProductListFilters(filters, currentPage));
             setNewCategoryName('');
             setMessage('Đã tạo danh mục mới.');
         } catch (error) {
@@ -419,7 +565,7 @@ function ProductsTab({
                 await createProduct(payload);
             }
 
-            await refreshProductManagement();
+            await refreshProductManagement(buildProductListFilters(filters, editingProductId ? currentPage : 1));
             resetProductForm();
             setMessage(editingProductId ? 'Đã cập nhật sản phẩm.' : 'Đã thêm bánh mới.');
         } catch (error) {
@@ -444,7 +590,7 @@ function ProductsTab({
     };
 
     const handleDeleteCategory = async (category: ProductCategory) => {
-        const relatedProductCount = countProductsByCategory(category.id);
+        const relatedProductCount = countProductsByCategory(category);
         const confirmed = window.confirm(
             `Xóa danh mục "${category.name}" sẽ xóa luôn ${relatedProductCount} bánh liên quan. Bạn có chắc muốn xóa không?`,
         );
@@ -457,11 +603,10 @@ function ProductsTab({
 
         try {
             await deleteCategory(category.id);
-            await refreshProductManagement();
+            const nextFilters = selectedCategoryId === category.id ? { ...filters, category_id: 'all' as number | 'all' } : filters;
 
-            if (selectedCategoryId === category.id) {
-                setSelectedCategoryId('all');
-            }
+            setFilters(nextFilters);
+            await refreshProductManagement(buildProductListFilters(nextFilters, 1));
 
             setMessage('Đã xóa danh mục và các bánh liên quan.');
         } catch (error) {
@@ -478,7 +623,7 @@ function ProductsTab({
 
         try {
             await deleteProduct(product.id);
-            await refreshProductManagement();
+            await refreshProductManagement(buildProductListFilters(filters, currentPage));
             setMessage('Đã xóa sản phẩm.');
         } catch (error) {
             setMessage(error instanceof Error ? error.message : 'Không xóa được sản phẩm.');
@@ -500,7 +645,7 @@ function ProductsTab({
                 tag: product.tag ?? '',
                 is_available: !product.is_available,
             });
-            await refreshProductManagement();
+            await refreshProductManagement(buildProductListFilters(filters, currentPage));
             setMessage(product.is_available ? 'Đã ẩn sản phẩm.' : 'Đã mở bán sản phẩm.');
         } catch (error) {
             setMessage(error instanceof Error ? error.message : 'Không cập nhật được sản phẩm.');
@@ -522,7 +667,7 @@ function ProductsTab({
                 tag: product.tag ?? '',
                 is_available: product.is_available,
             });
-            await refreshProductManagement();
+            await refreshProductManagement(buildProductListFilters(filters, currentPage));
             setMessage('Đã cập nhật số lượng bánh.');
         } catch (error) {
             setMessage(error instanceof Error ? error.message : 'Không cập nhật được số lượng bánh.');
@@ -535,8 +680,8 @@ function ProductsTab({
                 <MetricCard
                     icon={<CakeSlice size={20} />}
                     label="Tổng sản phẩm"
-                    value={`${products.length}`}
-                    note={`${activeProducts.length} sản phẩm đang bán`}
+                    value={`${pagination?.total ?? products.length}`}
+                    note={`${activeProducts.length} sản phẩm đang bán trên trang này`}
                 />
                 <MetricCard icon={<Tags size={20} />} label="Danh mục bánh" value={`${categories.length}`} note="Có thể tạo thêm loại bánh" />
                 <MetricCard icon={<EyeOff size={20} />} label="Đang ẩn" value={`${hiddenProducts.length}`} note="Có thể mở bán lại" />
@@ -572,14 +717,14 @@ function ProductsTab({
                 </form>
 
                 <div className="mb-5 flex flex-wrap gap-2">
-                    <CategoryPill active={selectedCategoryId === 'all'} label="Tất cả" onClick={() => setSelectedCategoryId('all')} />
+                    <CategoryPill active={selectedCategoryId === 'all'} label="Tất cả" onClick={() => void handleSelectCategory('all')} />
                     {categories.map((category) => (
                         <CategoryPill
                             active={selectedCategoryId === category.id}
-                            count={countProductsByCategory(category.id)}
+                            count={countProductsByCategory(category)}
                             key={category.id}
                             label={category.name}
-                            onClick={() => setSelectedCategoryId(category.id)}
+                            onClick={() => void handleSelectCategory(category.id)}
                         />
                     ))}
                 </div>
@@ -589,7 +734,7 @@ function ProductsTab({
                         <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4" key={category.id}>
                             <div>
                                 <div className="font-semibold text-slate-900">{category.name}</div>
-                                <div className="mt-1 text-xs text-slate-500">{countProductsByCategory(category.id)} bánh liên quan</div>
+                                <div className="mt-1 text-xs text-slate-500">{countProductsByCategory(category)} bánh liên quan</div>
                             </div>
                             <button
                                 className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-3 text-xs font-medium text-rose-600 hover:bg-rose-50"
@@ -706,27 +851,137 @@ function ProductsTab({
                         )}
                     </div>
                 </form>
-                <div className="mb-4 grid gap-3 md:grid-cols-[1fr_auto]">
-                    <div className="flex min-h-11 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-500">
-                        <Search size={16} />
-                        Tìm theo tên bánh, danh mục, trạng thái...
-                    </div>
+                <form className="mb-4 grid gap-3 rounded-xl border border-slate-200 bg-white p-4 xl:grid-cols-[1.2fr_.8fr_.8fr_.8fr_auto]" onSubmit={handleApplyFilters}>
+                    <label className="relative block">
+                        <Search className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-slate-400" size={16} />
+                        <input
+                            className="min-h-11 w-full rounded-lg border border-slate-200 bg-slate-50 pr-3 pl-10 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:border-emerald-400 focus:bg-white"
+                            onChange={(event) => setFilters((currentFilters) => ({ ...currentFilters, keyword: event.target.value }))}
+                            placeholder="Từ khóa sản phẩm"
+                            type="search"
+                            value={filters.keyword}
+                        />
+                    </label>
+                    <select
+                        className="min-h-11 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 outline-none focus:border-emerald-400 focus:bg-white"
+                        onChange={(event) =>
+                            setFilters((currentFilters) => ({
+                                ...currentFilters,
+                                category_id: event.target.value === 'all' ? 'all' : Number(event.target.value),
+                            }))
+                        }
+                        value={filters.category_id}
+                    >
+                        <option value="all">Tất cả danh mục</option>
+                        {categories.map((category) => (
+                            <option key={category.id} value={category.id}>
+                                {category.name}
+                            </option>
+                        ))}
+                    </select>
+                    <input
+                        className="min-h-11 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:border-emerald-400 focus:bg-white"
+                        min="0"
+                        onChange={(event) => setFilters((currentFilters) => ({ ...currentFilters, min_price: event.target.value }))}
+                        placeholder="Giá từ"
+                        type="number"
+                        value={filters.min_price}
+                    />
+                    <input
+                        className="min-h-11 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:border-emerald-400 focus:bg-white"
+                        min="0"
+                        onChange={(event) => setFilters((currentFilters) => ({ ...currentFilters, max_price: event.target.value }))}
+                        placeholder="Giá đến"
+                        type="number"
+                        value={filters.max_price}
+                    />
                     <div className="flex gap-2">
-                        <FilterButton active label={`${filteredProducts.length} bánh`} />
-                        <FilterButton label="Đang bán" />
-                        <FilterButton label="Sắp hết" />
+                        <button
+                            className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                            disabled={isLoading}
+                            type="submit"
+                        >
+                            <Search size={16} />
+                            Lọc
+                        </button>
+                        <button
+                            className="inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                            disabled={isLoading}
+                            onClick={() => void handleResetFilters()}
+                            type="button"
+                        >
+                            Xóa
+                        </button>
                     </div>
-                </div>
+                </form>
                 <ProductTable
                     categories={categories}
                     onDelete={handleDeleteProduct}
                     onEdit={handleEditProduct}
                     onToggleAvailability={handleToggleProduct}
                     onUpdateStockQuantity={handleUpdateStockQuantity}
-                    products={filteredProducts}
+                    products={products}
                 />
+                <PaginationControls isLoading={isLoading} meta={pagination} onPageChange={handlePageChange} />
             </Panel>
         </>
+    );
+}
+
+function PaginationControls({
+    isLoading,
+    meta,
+    onPageChange,
+}: {
+    isLoading: boolean;
+    meta: PaginationMeta | null;
+    onPageChange: (page: number) => Promise<void>;
+}) {
+    if (!meta || meta.last_page <= 1) {
+        return null;
+    }
+
+    const pages = Array.from({ length: meta.last_page }, (_, index) => index + 1);
+
+    return (
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4 text-sm">
+            <div className="text-slate-500">
+                Hiển thị {meta.from ?? 0}-{meta.to ?? 0} trong {meta.total} sản phẩm
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+                <button
+                    className="min-h-10 rounded-lg border border-slate-200 bg-white px-4 font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={isLoading || meta.current_page <= 1}
+                    onClick={() => void onPageChange(meta.current_page - 1)}
+                    type="button"
+                >
+                    Trước
+                </button>
+                {pages.map((page) => (
+                    <button
+                        className={`grid h-10 w-10 place-items-center rounded-lg text-sm font-medium ${
+                            page === meta.current_page
+                                ? 'bg-emerald-600 text-white'
+                                : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                        }`}
+                        disabled={isLoading}
+                        key={page}
+                        onClick={() => void onPageChange(page)}
+                        type="button"
+                    >
+                        {page}
+                    </button>
+                ))}
+                <button
+                    className="min-h-10 rounded-lg border border-slate-200 bg-white px-4 font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={isLoading || meta.current_page >= meta.last_page}
+                    onClick={() => void onPageChange(meta.current_page + 1)}
+                    type="button"
+                >
+                    Sau
+                </button>
+            </div>
+        </div>
     );
 }
 
@@ -858,7 +1113,7 @@ function VouchersTab({
 
             <Panel
                 title="Quản lý voucher"
-                subtitle="Tạo mã giảm giá theo phần trăm và giới hạn số lần sử dụng. Mã còn hoạt động sẽ áp được trong giỏ hàng."
+                subtitle="Tạo mã giảm giá theo phần trăm và giới hạn số lần sử dụng. Mã còn hoạt động sẽ áp dụng được trong giỏ hàng."
             >
                 <form className="mb-5 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 lg:grid-cols-5" onSubmit={handleSubmitVoucher}>
                     <input
@@ -929,49 +1184,111 @@ function VouchersTab({
     );
 }
 
-function OrdersTab() {
+function OrdersTab({
+    error,
+    isLoading,
+    message,
+    orders,
+    refreshOrders,
+    setMessage,
+    statuses,
+}: {
+    error: string;
+    isLoading: boolean;
+    message: string;
+    orders: AdminOrder[];
+    refreshOrders: () => Promise<void>;
+    setMessage: (message: string) => void;
+    statuses: OrderStatusMap;
+}) {
+    const countByStatus = (status: string) => orders.filter((order) => order.order_status === status).length;
+
+    const handleAdvanceStatus = async (order: AdminOrder) => {
+        const nextStatus = getNextOrderStatus(order.order_status, statuses);
+
+        if (!nextStatus) {
+            setMessage('Đơn hàng đã hoàn tất.');
+
+            return;
+        }
+
+        setMessage('');
+
+        try {
+            await updateOrderStatus(order.code, nextStatus);
+            await refreshOrders();
+            setMessage(`Đã cập nhật ${order.code} sang trạng thái ${statuses[nextStatus]}.`);
+        } catch (error) {
+            setMessage(error instanceof Error ? error.message : 'Không cập nhật được trạng thái đơn hàng.');
+        }
+    };
+
     return (
         <>
             <section className="grid gap-4 md:grid-cols-4">
-                <MetricCard icon={<ClipboardList size={20} />} label="Tổng đơn hôm nay" value="32" note="12 đơn mới" />
-                <MetricCard icon={<Clock3 size={20} />} label="Chờ xác nhận" value="6" note="Ưu tiên xử lý" />
-                <MetricCard icon={<Truck size={20} />} label="Đang giao" value="8" note="Theo dõi shipper" />
-                <MetricCard icon={<CheckCircle2 size={20} />} label="Đã giao" value="18" note="Hoàn tất hôm nay" />
+                <MetricCard icon={<ClipboardList size={20} />} label="Tổng đơn" value={`${orders.length}`} note="Đơn mới nhất trước" />
+                <MetricCard icon={<Clock3 size={20} />} label="Chờ xác nhận" value={`${countByStatus('pending')}`} note="Ưu tiên xử lý" />
+                <MetricCard icon={<Truck size={20} />} label="Đang giao" value={`${countByStatus('shipping')}`} note="Theo dõi shipper" />
+                <MetricCard icon={<CheckCircle2 size={20} />} label="Đã giao" value={`${countByStatus('delivered')}`} note="Hoàn tất" />
             </section>
 
-            <Panel title="Quản lý đơn hàng" subtitle="Bấm chuyển trạng thái đơn: Chờ xác nhận -> Đang nướng bánh -> Đang giao -> Đã giao.">
+            <Panel title="Quản lý đơn hàng" subtitle="Bấm chuyển trạng thái đơn: nhận đơn -> xác nhận -> làm bánh -> bàn giao shipper -> đang giao -> đã giao.">
                 <div className="mb-4 flex flex-wrap gap-2">
                     <FilterButton active label="Tất cả đơn" />
                     <FilterButton label="Chờ xác nhận" />
-                    <FilterButton label="Đang nướng bánh" />
+                    <FilterButton label="Đang làm bánh" />
+                    <FilterButton label="Bàn giao shipper" />
                     <FilterButton label="Đang giao" />
                     <FilterButton label="Đã giao" />
                 </div>
-                <OrderList />
+                {message && <div className="mb-4 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700">{message}</div>}
+                {error && <div className="mb-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</div>}
+                {isLoading ? <EmptyState message="Đang tải đơn hàng..." /> : <OrderList onAdvanceStatus={handleAdvanceStatus} orders={orders} statuses={statuses} />}
             </Panel>
         </>
     );
 }
 
-function RevenueTab({ period, products, setPeriod }: { period: string; products: CakeProduct[]; setPeriod: (period: string) => void }) {
-    const topProducts = products.slice(0, 3);
-
+function RevenueTab({
+    error,
+    isLoading,
+    period,
+    setPeriod,
+    stats,
+}: {
+    error: string;
+    isLoading: boolean;
+    period: RevenuePeriod;
+    setPeriod: (period: RevenuePeriod) => void;
+    stats: RevenueStats | null;
+}) {
     return (
         <>
-            <section className="grid gap-4 md:grid-cols-3">
-                <MetricCard icon={<BarChart3 size={20} />} label="Doanh thu tuần" value="64.6tr" note="+18% so với tuần trước" />
-                <MetricCard icon={<ShoppingBag size={20} />} label="Đơn đã thanh toán" value="214" note="Tỷ lệ hoàn tất 92%" />
-                <MetricCard icon={<Users size={20} />} label="Khách quay lại" value="38%" note="+7% trong tháng" />
+            {error && <div className="rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</div>}
+
+            <section className="grid gap-4 md:grid-cols-2">
+                <MetricCard
+                    icon={<BarChart3 size={20} />}
+                    label={revenuePeriodTitle(period)}
+                    value={stats ? formatCompactCurrency(stats.summary.total_revenue) : '0đ'}
+                    note={isLoading ? 'Đang tải...' : stats ? formatChangeNote(stats.summary.revenue_change_percent) : 'Chưa có dữ liệu'}
+                />
+                <MetricCard
+                    icon={<ShoppingBag size={20} />}
+                    label="Đơn đã thanh toán"
+                    value={`${stats?.summary.paid_orders_count ?? 0}`}
+                    note={`Tỷ lệ hoàn tất ${stats?.summary.completion_rate ?? 0}%`}
+                />
             </section>
 
             <section className="grid gap-6 xl:grid-cols-[1fr_360px]">
                 <Panel title="Thống kê doanh thu" subtitle="Xem doanh thu theo ngày, tháng hoặc năm để theo dõi hiệu quả bán hàng.">
-                    <RevenueChart period={period} setPeriod={setPeriod} detailed />
+                    <RevenueChart detailed period={period} setPeriod={setPeriod} stats={stats} />
                 </Panel>
 
                 <Panel title="Sản phẩm bán chạy" subtitle="Các mẫu bánh đóng góp doanh thu tốt nhất.">
                     <div className="grid gap-3">
-                        {topProducts.map((product, index) => (
+                        {stats?.top_products.map((product, index) => (
                             <div className="flex items-center justify-between rounded-lg border border-slate-200 p-3" key={product.name}>
                                 <div className="flex items-center gap-3">
                                     <span className="grid h-9 w-9 place-items-center rounded-lg bg-emerald-50 text-sm font-semibold text-emerald-700">
@@ -979,15 +1296,16 @@ function RevenueTab({ period, products, setPeriod }: { period: string; products:
                                     </span>
                                     <div>
                                         <div className="font-medium">{product.name}</div>
-                                        <div className="text-xs text-slate-500">{product.tag}</div>
+                                        <div className="text-xs text-slate-500">
+                                            {product.quantity} sản phẩm · {product.orders_count} đơn
+                                        </div>
                                     </div>
                                 </div>
-                                <div className="text-sm font-semibold text-emerald-700">
-                                    {index === 0 ? '23.3tr' : index === 1 ? '18.5tr' : '12.8tr'}
-                                </div>
+                                <div className="text-sm font-semibold text-emerald-700">{formatCompactCurrency(product.revenue)}</div>
                             </div>
                         ))}
-                        {topProducts.length === 0 && <EmptyState message="Chưa có sản phẩm để thống kê." />}
+                        {!isLoading && (!stats || stats.top_products.length === 0) && <EmptyState message="Chưa có sản phẩm để thống kê." />}
+                        {isLoading && <EmptyState message="Đang tải thống kê doanh thu..." />}
                     </div>
                 </Panel>
             </section>
@@ -1203,7 +1521,17 @@ function ProductTable({
     );
 }
 
-function OrderList({ compact = false }: { compact?: boolean }) {
+function OrderList({
+    compact = false,
+    onAdvanceStatus,
+    orders,
+    statuses = {},
+}: {
+    compact?: boolean;
+    onAdvanceStatus?: (order: AdminOrder) => void;
+    orders: AdminOrder[];
+    statuses?: OrderStatusMap;
+}) {
     const visibleOrders = compact ? orders.slice(0, 3) : orders;
 
     return (
@@ -1215,62 +1543,270 @@ function OrderList({ compact = false }: { compact?: boolean }) {
                 >
                     <div>
                         <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-semibold">{order.code}</span>
-                            <StatusBadge status={order.status} />
+                            <span className="font-semibold">#{order.code}</span>
+                            <StatusBadge status={order.order_status_label} />
                         </div>
-                        <div className="mt-1 text-sm text-slate-600">
-                            {order.customer} · {order.item} · {order.time}
-                        </div>
+                        <div className="mt-1 text-sm text-slate-600">{order.customer_name} · {summarizeOrderItems(order)} · {formatOrderTime(order.created_date)}</div>
+                        {!compact && (
+                            <div className="mt-2 grid gap-1 text-xs text-slate-500">
+                                <span>
+                                    Giao đến: {[order.customer_address, order.customer_district].filter(Boolean).join(', ') || order.shipping_address}
+                                </span>
+                                <span>Khung giờ: {order.delivery_slot ?? 'Chưa cập nhật'}</span>
+                            </div>
+                        )}
                     </div>
-                    <div className="text-sm font-semibold text-emerald-700">{order.total}</div>
-                    <button
-                        className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-emerald-200 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
-                        type="button"
-                    >
-                        <Truck size={16} />
-                        Chuyển trạng thái
-                    </button>
+                    <div className="text-sm font-semibold text-emerald-700">{formatCurrency(order.amount)}</div>
+                    {onAdvanceStatus && (
+                        <button
+                            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-emerald-200 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+                            disabled={!getNextOrderStatus(order.order_status, statuses)}
+                            onClick={() => onAdvanceStatus(order)}
+                            type="button"
+                        >
+                            <Truck size={16} />
+                            {getNextOrderStatus(order.order_status, statuses) ? 'Chuyển trạng thái' : 'Đã hoàn tất'}
+                        </button>
+                    )}
                 </div>
             ))}
+            {visibleOrders.length === 0 && <EmptyState message="Chưa có đơn hàng nào." />}
         </div>
     );
 }
 
-function RevenueChart({ detailed = false, period, setPeriod }: { detailed?: boolean; period: string; setPeriod: (period: string) => void }) {
+function summarizeOrderItems(order: AdminOrder): string {
+    if (order.items.length === 0) {
+        return 'Chưa có sản phẩm';
+    }
+
+    const firstItem = order.items[0];
+    const suffix = order.items.length > 1 ? ` +${order.items.length - 1} món` : '';
+
+    return `${firstItem.name} x${firstItem.quantity}${suffix}`;
+}
+
+function getNextOrderStatus(currentStatus: string, statuses: OrderStatusMap): string | null {
+    const keys = Object.keys(statuses);
+    const currentIndex = keys.indexOf(currentStatus);
+
+    if (currentIndex === -1 || currentIndex >= keys.length - 1) {
+        return null;
+    }
+
+    return keys[currentIndex + 1];
+}
+
+function formatOrderTime(value?: string | null): string {
+    if (!value) {
+        return 'Chưa cập nhật';
+    }
+
+    return new Date(value).toLocaleString('vi-VN');
+}
+
+function formatCurrency(amount: number): string {
+    return `${amount.toLocaleString('vi-VN')}đ`;
+}
+
+const revenuePeriods: { label: string; value: RevenuePeriod }[] = [
+    { label: 'Ngày', value: 'day' },
+    { label: 'Tháng', value: 'month' },
+    { label: 'Năm', value: 'year' },
+];
+
+function periodToApiPeriod(period: string): RevenuePeriod {
+    if (period === 'month' || period === 'Tháng') {
+        return 'month';
+    }
+
+    if (period === 'year' || period === 'Năm') {
+        return 'year';
+    }
+
+    return 'day';
+}
+
+function revenuePeriodTitle(period: string): string {
+    const apiPeriod = periodToApiPeriod(period);
+
+    if (apiPeriod === 'month') {
+        return 'Doanh thu năm nay';
+    }
+
+    if (apiPeriod === 'year') {
+        return 'Doanh thu 5 năm';
+    }
+
+    return 'Doanh thu tuần';
+}
+
+function formatChangeNote(percent: number): string {
+    if (percent === 0) {
+        return 'Không đổi so với kỳ trước';
+    }
+
+    return `${percent > 0 ? '+' : ''}${percent}% so với kỳ trước`;
+}
+
+function formatCompactCurrency(amount: number): string {
+    if (amount >= 1000000) {
+        return `${Number((amount / 1000000).toFixed(1)).toLocaleString('vi-VN')}tr`;
+    }
+
+    if (amount >= 1000) {
+        return `${Number((amount / 1000).toFixed(1)).toLocaleString('vi-VN')}k`;
+    }
+
+    return `${amount.toLocaleString('vi-VN')}đ`;
+}
+
+function RevenueChart({
+    detailed = false,
+    period,
+    setPeriod,
+    stats,
+}: {
+    detailed?: boolean;
+    period: RevenuePeriod;
+    setPeriod: (period: RevenuePeriod) => void;
+    stats: RevenueStats | null;
+}) {
+    const chart = useMemo(() => stats?.chart ?? [], [stats?.chart]);
+    const chartCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+    useEffect(() => {
+        const canvas = chartCanvasRef.current;
+
+        if (!canvas || chart.length === 0) {
+            return;
+        }
+
+        const context = canvas.getContext('2d');
+
+        if (!context) {
+            return;
+        }
+
+        const gradient = context.createLinearGradient(0, 0, 0, detailed ? 288 : 192);
+
+        gradient.addColorStop(0, 'rgba(5, 150, 105, 0.24)');
+        gradient.addColorStop(1, 'rgba(5, 150, 105, 0.02)');
+
+        const revenueLineChart = new ChartJS(context, {
+            type: 'line',
+            data: {
+                labels: chart.map((item) => item.label),
+                datasets: [
+                    {
+                        label: 'Doanh thu',
+                        data: chart.map((item) => item.revenue),
+                        borderColor: '#059669',
+                        backgroundColor: gradient,
+                        borderWidth: 3,
+                        fill: true,
+                        pointBackgroundColor: '#ffffff',
+                        pointBorderColor: '#059669',
+                        pointBorderWidth: 2,
+                        pointHoverRadius: 6,
+                        pointRadius: 4,
+                        tension: 0.35,
+                    },
+                ],
+            },
+            options: {
+                animation: {
+                    duration: 500,
+                },
+                maintainAspectRatio: false,
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: (context: TooltipItem<'line'>): string => {
+                                const point = chart[context.dataIndex];
+
+                                return `Doanh thu: ${point?.revenue_formatted ?? formatCompactCurrency(Number(context.parsed.y))}`;
+                            },
+                        },
+                        displayColors: false,
+                    },
+                },
+                responsive: true,
+                scales: {
+                    x: {
+                        border: {
+                            display: false,
+                        },
+                        grid: {
+                            display: false,
+                        },
+                        ticks: {
+                            color: '#64748b',
+                            font: {
+                                size: 12,
+                            },
+                        },
+                    },
+                    y: {
+                        beginAtZero: true,
+                        border: {
+                            display: false,
+                        },
+                        grid: {
+                            color: 'rgba(148, 163, 184, 0.18)',
+                        },
+                        ticks: {
+                            callback: (value: string | number): string => formatCompactCurrency(Number(value)),
+                            color: '#64748b',
+                            font: {
+                                size: 12,
+                            },
+                        },
+                    },
+                },
+            },
+        });
+
+        return () => {
+            revenueLineChart.destroy();
+        };
+    }, [chart, detailed]);
+
     return (
         <>
             <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
                 <div className="flex gap-2">
-                    {['Ngày', 'Tháng', 'Năm'].map((item) => (
+                    {revenuePeriods.map((item) => (
                         <button
-                            className={`min-h-9 rounded-full px-4 text-xs font-medium ${period === item ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                            key={item}
-                            onClick={() => setPeriod(item)}
+                            className={`min-h-9 rounded-full px-4 text-xs font-medium ${period === item.value ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                            key={item.value}
+                            onClick={() => setPeriod(item.value)}
                             type="button"
                         >
-                            {item}
+                            {item.label}
                         </button>
                     ))}
                 </div>
-                {detailed && <div className="text-sm font-medium text-emerald-700">Tổng: 64.6tr</div>}
+                {detailed && <div className="text-sm font-medium text-emerald-700">Tổng: {stats?.summary.total_revenue_formatted ?? '0đ'}</div>}
             </div>
-            <div className={`flex items-end gap-3 rounded-xl bg-slate-50 px-4 py-4 ${detailed ? 'h-72' : 'h-48'}`}>
-                {revenue.map((item) => (
-                    <div className="flex flex-1 flex-col items-center gap-2" key={item.label}>
-                        <div className="w-full rounded-t-lg bg-emerald-500 transition hover:bg-emerald-600" style={{ height: `${item.value}%` }} />
-                        <span className="text-xs text-slate-500">{item.label}</span>
-                        {detailed && <span className="hidden text-[11px] font-medium text-slate-600 sm:inline">{item.amount}</span>}
+            <div className={`rounded-xl bg-slate-50 px-4 py-4 ${detailed ? 'h-72' : 'h-48'}`}>
+                {chart.length > 0 ? (
+                    <canvas aria-label="Biểu đồ đường thống kê doanh thu" ref={chartCanvasRef} role="img" />
+                ) : (
+                    <div className="grid h-full w-full place-items-center text-sm text-slate-500">Chưa có dữ liệu doanh thu.</div>
+                )}
+            </div>
+            {stats?.best_seller && (
+                <div className="mt-5 rounded-xl border border-emerald-100 bg-emerald-50 p-4">
+                    <div className="text-sm font-semibold text-emerald-900">{stats.best_seller.name} đang là Best Seller</div>
+                    <div className="mt-1 text-xs text-emerald-700">
+                        Doanh thu: {stats.best_seller.revenue_formatted} · {stats.best_seller.quantity} sản phẩm · {stats.best_seller.orders_count} đơn
                     </div>
-                ))}
-            </div>
-            <div className="mt-5 rounded-xl border border-emerald-100 bg-emerald-50 p-4">
-                <div className="text-sm font-semibold text-emerald-900">Sakura Mousse Cake đang là Best Seller</div>
-                <div className="mt-1 text-xs text-emerald-700">Doanh thu ước tính: 23.310.000đ · 126 đơn</div>
-            </div>
+                </div>
+            )}
         </>
     );
 }
-
 function AdminNavItem({ active = false, icon, label, onClick }: { active?: boolean; icon: ReactNode; label: string; onClick: () => void }) {
     return (
         <button

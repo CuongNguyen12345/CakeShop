@@ -23,8 +23,7 @@ class GoogleLoginRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'username' => ['required', 'string', 'max:100'],
-            'phone_number' => ['required', 'string', 'max:20'],
+            'credential' => ['required', 'string'],
         ];
     }
 }

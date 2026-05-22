@@ -4,7 +4,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 
 import BakeryLayout from '@/components/bakery/bakery-layout';
 import { BakeryButton, BakeryFooter, Breadcrumbs } from '@/components/bakery/shared';
-import { CartItem, defaultCart, formatMoney } from '@/data/bakery';
+import { CartItem, formatMoney } from '@/data/bakery';
 import { readAuthUser } from '@/lib/auth-api';
 import { applyVoucher, type Voucher } from '@/lib/voucher-api';
 
@@ -24,10 +24,10 @@ export default function Cart() {
             return;
         }
 
-        const cart = JSON.parse(localStorage.getItem('fleur-cart') ?? 'null') as CartItem[] | null;
+        const cart = removeLegacyDefaultCart(JSON.parse(localStorage.getItem('fleur-cart') ?? 'null') as CartItem[] | null);
         const storedVoucher = JSON.parse(localStorage.getItem('fleur-applied-voucher') ?? 'null') as Voucher | null;
 
-        setItems(cart?.length ? cart : defaultCart());
+        setItems(cart ?? []);
         setAppliedVoucher(storedVoucher);
         setHasCheckedAuth(true);
     }, []);
@@ -168,6 +168,23 @@ export default function Cart() {
 
 function adjustQty(items: CartItem[], index: number, delta: number): CartItem[] {
     return items.map((item, itemIndex) => (itemIndex === index ? { ...item, qty: Math.max(1, item.qty + delta) } : item));
+}
+
+function removeLegacyDefaultCart(cart: CartItem[] | null): CartItem[] | null {
+    const isLegacyDefaultCart =
+        cart?.length === 2 &&
+        cart[0]?.name === 'Sakura Mousse Cake' &&
+        cart[1]?.name === 'Matcha Lavender Roll' &&
+        cart.every((item) => item.qty === 1);
+
+    if (isLegacyDefaultCart) {
+        localStorage.removeItem('fleur-cart');
+        window.dispatchEvent(new Event('fleur-cart-updated'));
+
+        return [];
+    }
+
+    return cart;
 }
 
 function OrderSummary({

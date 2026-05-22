@@ -4,12 +4,21 @@ import { useEffect, useState } from 'react';
 import BakeryLayout from '@/components/bakery/bakery-layout';
 import ProductCard from '@/components/bakery/product-card';
 import { BakeryButton, BakeryFooter, Breadcrumbs } from '@/components/bakery/shared';
-import { products } from '@/data/bakery';
+import { BakeryProduct, formatMoney } from '@/data/bakery';
 import { AuthUser, forgetAuthUser, readAuthUser } from '@/lib/auth-api';
+import { listUserOrders, type OrderPaymentStatusResponse } from '@/lib/payment-api';
+import { mapCakeProductToBakeryProduct } from '@/lib/product-presenter';
+import { listWishlist } from '@/lib/wishlist-api';
 
 export default function Account() {
     const [authUser, setAuthUser] = useState<AuthUser | null>(null);
     const [hasCheckedAuth, setHasCheckedAuth] = useState(false);
+    const [isLoadingOrders, setIsLoadingOrders] = useState(false);
+    const [isLoadingWishlist, setIsLoadingWishlist] = useState(false);
+    const [orderError, setOrderError] = useState('');
+    const [orders, setOrders] = useState<OrderPaymentStatusResponse[]>([]);
+    const [wishlistError, setWishlistError] = useState('');
+    const [wishlistProducts, setWishlistProducts] = useState<BakeryProduct[]>([]);
 
     useEffect(() => {
         const storedUser = readAuthUser();
@@ -24,6 +33,76 @@ export default function Account() {
         setHasCheckedAuth(true);
     }, []);
 
+    useEffect(() => {
+        if (!authUser) {
+            return;
+        }
+
+        let isActive = true;
+
+        const loadOrders = async () => {
+            setIsLoadingOrders(true);
+            setOrderError('');
+
+            try {
+                const nextOrders = await listUserOrders(authUser.id);
+
+                if (isActive) {
+                    setOrders(nextOrders);
+                }
+            } catch (error) {
+                if (isActive) {
+                    setOrderError(error instanceof Error ? error.message : 'Không tải được lịch sử đơn hàng.');
+                }
+            } finally {
+                if (isActive) {
+                    setIsLoadingOrders(false);
+                }
+            }
+        };
+
+        void loadOrders();
+
+        return () => {
+            isActive = false;
+        };
+    }, [authUser]);
+
+    useEffect(() => {
+        if (!authUser) {
+            return;
+        }
+
+        let isActive = true;
+
+        const loadWishlist = async () => {
+            setIsLoadingWishlist(true);
+            setWishlistError('');
+
+            try {
+                const products = await listWishlist(authUser.id);
+
+                if (isActive) {
+                    setWishlistProducts(products.map(mapCakeProductToBakeryProduct));
+                }
+            } catch (error) {
+                if (isActive) {
+                    setWishlistError(error instanceof Error ? error.message : 'Không tải được wishlist.');
+                }
+            } finally {
+                if (isActive) {
+                    setIsLoadingWishlist(false);
+                }
+            }
+        };
+
+        void loadWishlist();
+
+        return () => {
+            isActive = false;
+        };
+    }, [authUser]);
+
     if (!hasCheckedAuth || !authUser) {
         return (
             <BakeryLayout>
@@ -36,7 +115,7 @@ export default function Account() {
     }
 
     const username = authUser.username;
-    const phoneNumber = authUser.phone_number ?? 'Chưa cập nhật số điện thoại';
+    const email = authUser.email ?? 'Chưa cập nhật email';
     const initials = username
         .split(/[\s_]+/)
         .filter(Boolean)
@@ -56,7 +135,7 @@ export default function Account() {
                                 {initials || 'FL'}
                             </div>
                             <div className="text-[15px] font-medium">{username}</div>
-                            <div className="mt-1 text-[12px] text-[var(--bakery-gray)]">{phoneNumber}</div>
+                            <div className="mt-1 text-[12px] text-[var(--bakery-gray)]">{email}</div>
                         </div>
                         {['📋 Lịch sử đơn hàng', '💜 Wishlist', '📍 Địa chỉ giao hàng', '⚙️ Thông tin cá nhân', '🔔 Thông báo'].map((item, index) => (
                             <div
@@ -81,39 +160,81 @@ export default function Account() {
                         <h1 className="bakery-section-title mb-5">
                             Lịch sử <em>đơn hàng</em>
                         </h1>
-                        {[
-                            ['🌸', 'Sakura Mousse Cake 6"', '20/05/2025 · #FL2025-08471', 'Đang giao', '185.000đ'],
-                            ['🍵', 'Matcha Lavender Roll · ×2', '12/05/2025 · #FL2025-07203', 'Hoàn thành', '290.000đ'],
-                            ['🫐', 'Blueberry Cheesecake 8"', '03/05/2025 · #FL2025-06115', 'Hoàn thành', '420.000đ'],
-                        ].map(([emoji, name, meta, status, price]) => (
-                            <div className="mb-3 flex items-center gap-4 rounded-2xl border border-[var(--bakery-border)] bg-white p-4" key={name}>
-                                <div className="grid h-14 w-14 place-items-center rounded-xl bg-[var(--bakery-lav-light)] text-3xl">{emoji}</div>
-                                <div>
-                                    <div className="text-sm font-medium">{name}</div>
-                                    <div className="mt-0.5 text-[12px] text-[var(--bakery-gray)]">{meta}</div>
-                                    <span className="bakery-pill bakery-pill-lav mt-2">{status}</span>
-                                </div>
-                                <div className="ml-auto text-right">
-                                    <div className="font-semibold text-[var(--bakery-lav)]">{price}</div>
-                                    <BakeryButton className="mt-2 px-4 py-1.5 text-[12px]" href="/tracking" variant="lavender">
-                                        Theo dõi
-                                    </BakeryButton>
-                                </div>
+                        {isLoadingOrders && <div className="rounded-2xl border border-[var(--bakery-border)] bg-white p-6 text-sm text-[var(--bakery-gray)]">Đang tải lịch sử đơn hàng...</div>}
+                        {orderError && <div className="rounded-2xl border border-rose-100 bg-rose-50 p-6 text-sm text-rose-700">{orderError}</div>}
+                        {!isLoadingOrders && !orderError && orders.length === 0 && (
+                            <div className="rounded-2xl border border-dashed border-[var(--bakery-border)] bg-white p-8 text-center text-sm text-[var(--bakery-gray)]">
+                                Bạn chưa có đơn hàng nào trong tài khoản này.
                             </div>
-                        ))}
+                        )}
+                        {!isLoadingOrders && orders.map((order) => <OrderHistoryCard key={order.order_code} order={order} />)}
+
                         <hr className="my-10 border-[var(--bakery-border)]" />
+
                         <h2 className="bakery-section-title mb-5">
                             Wishlist <em>yêu thích</em>
                         </h2>
-                        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                            {products.slice(0, 4).map((product) => (
-                                <ProductCard compact key={product.id} product={product} />
-                            ))}
-                        </div>
+                        {isLoadingWishlist && <div className="rounded-2xl border border-[var(--bakery-border)] bg-white p-6 text-sm text-[var(--bakery-gray)]">Đang tải wishlist...</div>}
+                        {wishlistError && <div className="rounded-2xl border border-rose-100 bg-rose-50 p-6 text-sm text-rose-700">{wishlistError}</div>}
+                        {!isLoadingWishlist && !wishlistError && wishlistProducts.length === 0 && (
+                            <div className="rounded-2xl border border-dashed border-[var(--bakery-border)] bg-white p-8 text-center text-sm text-[var(--bakery-gray)]">
+                                Bạn chưa yêu thích chiếc bánh nào.
+                            </div>
+                        )}
+                        {!isLoadingWishlist && wishlistProducts.length > 0 && (
+                            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                                {wishlistProducts.map((product) => (
+                                    <ProductCard
+                                        compact
+                                        initialIsFavorite
+                                        key={product.id}
+                                        onFavoriteChange={(productId, isFavorite) => {
+                                            if (!isFavorite) {
+                                                setWishlistProducts((current) => current.filter((item) => item.id !== productId));
+                                            }
+                                        }}
+                                        product={product}
+                                    />
+                                ))}
+                            </div>
+                        )}
                     </div>
                 </div>
             </section>
             <BakeryFooter />
         </BakeryLayout>
     );
+}
+
+function OrderHistoryCard({ order }: { order: OrderPaymentStatusResponse }) {
+    const firstItem = order.items[0];
+    const itemTitle = firstItem ? `${firstItem.name}${firstItem.quantity > 1 ? ` · ×${firstItem.quantity}` : ''}` : 'Đơn hàng';
+    const itemMeta = [formatDisplayDate(order.delivery_date), `#${order.order_code}`].filter(Boolean).join(' · ');
+
+    return (
+        <div className="mb-3 flex items-center gap-4 rounded-2xl border border-[var(--bakery-border)] bg-white p-4">
+            <div className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-xl bg-[var(--bakery-lav-light)] text-2xl">
+                {firstItem?.image_url ? <img className="h-full w-full object-cover" src={firstItem.image_url} alt={firstItem.name} /> : '🍰'}
+            </div>
+            <div className="min-w-0">
+                <div className="truncate text-sm font-medium">{itemTitle}</div>
+                <div className="mt-0.5 text-[12px] text-[var(--bakery-gray)]">{itemMeta}</div>
+                <span className="bakery-pill bakery-pill-lav mt-2">{order.order_status_label}</span>
+            </div>
+            <div className="ml-auto shrink-0 text-right">
+                <div className="font-semibold text-[var(--bakery-lav)]">{formatMoney(order.amount)}</div>
+                <BakeryButton className="mt-2 px-4 py-1.5 text-[12px]" href={`/tracking?order_code=${encodeURIComponent(order.order_code)}`} variant="lavender">
+                    Theo dõi
+                </BakeryButton>
+            </div>
+        </div>
+    );
+}
+
+function formatDisplayDate(value?: string | null): string | null {
+    if (!value) {
+        return null;
+    }
+
+    return new Date(value).toLocaleDateString('vi-VN');
 }

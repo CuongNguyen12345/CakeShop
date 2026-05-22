@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Resources\OrderResource;
 use App\Models\Order;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -28,7 +29,8 @@ Route::get('checkout', function () {
 })->name('bakery.checkout');
 
 Route::get('order-confirm', function (Request $request) {
-    $order = Order::where('code', $request->query('order_code'))->first();
+    $order = Order::with('items')->where('code', $request->query('order_code'))->first();
+    $orderData = $order ? (new OrderResource($order))->resolve() : [];
 
     return Inertia::render('bakery/confirm', [
         'orderCode' => $order?->code ?? $request->query('order_code'),
@@ -43,6 +45,10 @@ Route::get('order-confirm', function (Request $request) {
         'bankAccountName' => $order?->bank_account_name ?? $request->query('bank_account_name'),
         'transferContent' => $order?->transfer_content ?? $request->query('transfer_content'),
         'qrUrl' => $order?->qr_url ?? $request->query('qr_url'),
+        'orderStatus' => $orderData['order_status'] ?? null,
+        'orderStatusLabel' => $orderData['order_status_label'] ?? null,
+        'items' => $orderData['items'] ?? [],
+        'timeline' => $orderData['timeline'] ?? [],
     ]);
 })->name('bakery.confirm');
 

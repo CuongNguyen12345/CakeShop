@@ -4,11 +4,24 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\CheckoutPaymentRequest;
+use App\Http\Resources\OrderResource;
 use App\Models\Order;
+use App\Models\Product;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class PaymentController extends Controller
 {
+    public function show(Order $order): JsonResponse
+    {
+        $order->load('items');
+
+        return response()->json((new OrderResource($order))->resolve());
+    }
+
     public function checkout(CheckoutPaymentRequest $request): JsonResponse
     {
         $amount = (int) round((float) $request->input('amount'));
@@ -73,25 +86,66 @@ class PaymentController extends Controller
         $customerDistrict = $request->string('customer_district')->toString();
         $deliverySlot = $request->string('delivery_slot')->toString();
 
-        return Order::create(array_merge([
-            'code' => $orderCode,
-            'payment_method' => $paymentMethod,
-            'payment_status' => 'pending',
-            'order_status' => 'Processing',
-            'amount' => $amount,
-            'total_amount' => $amount,
-            'customer_name' => $request->string('customer_name')->toString(),
-            'customer_phone' => $request->string('customer_phone')->toString(),
-            'customer_email' => $request->string('customer_email')->toString(),
-            'shipping_address' => collect([$customerAddress, $customerDistrict])->filter()->implode(', '),
-            'customer_address' => $customerAddress,
-            'customer_district' => $customerDistrict,
-            'customer_note' => $request->filled('customer_note') ? $request->string('customer_note')->toString() : null,
-            'delivery_date' => $request->input('delivery_date'),
-            'delivery_time' => $this->deliveryTimeFromSlot($deliverySlot),
-            'delivery_slot' => $deliverySlot,
-            'created_date' => now(),
-        ], $paymentDetails));
+        return DB::transaction(function () use ($amount, $customerAddress, $customerDistrict, $deliverySlot, $orderCode, $paymentDetails, $paymentMethod, $request): Order {
+            $items = collect($request->input('items', []));
+            $user = $request->filled('user_id') ? User::query()->find($request->integer('user_id')) : null;
+
+            $this->reserveProductStock($items);
+
+            $order = Order::create(array_merge([
+                'user_id' => $user?->id,
+                'code' => $orderCode,
+                'payment_method' => $paymentMethod,
+                'payment_status' => 'pending',
+                'order_status' => Order::STATUS_PENDING,
+                'amount' => $amount,
+                'total_amount' => $amount,
+                'customer_name' => $request->string('customer_name')->toString(),
+                'customer_phone' => $request->string('customer_phone')->toString(),
+                'customer_email' => $user?->email ?: ($request->filled('customer_email') ? $request->string('customer_email')->toString() : null),
+                'shipping_address' => collect([$customerAddress, $customerDistrict])->filter()->implode(', '),
+                'customer_address' => $customerAddress,
+                'customer_district' => $customerDistrict,
+                'customer_note' => $request->filled('customer_note') ? $request->string('customer_note')->toString() : null,
+                'delivery_date' => $request->input('delivery_date'),
+                'delivery_time' => $this->deliveryTimeFromSlot($deliverySlot),
+                'delivery_slot' => $deliverySlot,
+                'created_date' => now(),
+            ], $paymentDetails));
+
+            $order->items()->createMany($items->map(fn (array $item): array => [
+                'product_id' => $item['product_id'] ?? null,
+                'item_name' => $item['name'],
+                'item_description' => $item['description'] ?? null,
+                'item_image_url' => $item['image_url'] ?? null,
+                'quantity' => (int) $item['quantity'],
+                'price' => (float) $item['price'],
+            ])->all());
+
+            return $order;
+        });
+    }
+
+    /**
+     * @param  Collection<int, array<string, mixed>>  $items
+     */
+    private function reserveProductStock(Collection $items): void
+    {
+        $items
+            ->filter(fn (array $item): bool => filled($item['product_id'] ?? null))
+            ->groupBy(fn (array $item): int => (int) $item['product_id'])
+            ->each(function ($productItems, int $productId): void {
+                $quantity = $productItems->sum(fn (array $item): int => (int) $item['quantity']);
+                $product = Product::query()->whereKey($productId)->lockForUpdate()->first();
+
+                if (! $product || $product->stock_quantity < $quantity) {
+                    throw ValidationException::withMessages([
+                        'items' => ['San pham '.$productItems->first()['name'].' khong du so luong ton kho.'],
+                    ]);
+                }
+
+                $product->decrement('stock_quantity', $quantity);
+            });
     }
 
     private function confirmationUrl(Order $order): string

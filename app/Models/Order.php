@@ -2,11 +2,23 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Order extends Model
 {
+    public const STATUS_PENDING = 'pending';
+
+    public const STATUS_CONFIRMED = 'confirmed';
+
+    public const STATUS_BAKING = 'baking';
+
+    public const STATUS_READY_FOR_SHIPPER = 'ready_for_shipper';
+
+    public const STATUS_SHIPPING = 'shipping';
+
+    public const STATUS_DELIVERED = 'delivered';
+
     public $timestamps = false;
 
     protected $fillable = [
@@ -57,6 +69,34 @@ class Order extends Model
             'payment_status' => 'paid',
             'paid_at' => now(),
         ])->save();
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public static function statusLabels(): array
+    {
+        return [
+            self::STATUS_PENDING => 'Chờ xác nhận',
+            self::STATUS_CONFIRMED => 'Đã xác nhận',
+            self::STATUS_BAKING => 'Đang làm bánh',
+            self::STATUS_READY_FOR_SHIPPER => 'Bàn giao shipper',
+            self::STATUS_SHIPPING => 'Đang giao hàng',
+            self::STATUS_DELIVERED => 'Giao hàng thành công',
+        ];
+    }
+
+    public function statusLabel(): string
+    {
+        return self::statusLabels()[$this->order_status] ?? (string) $this->order_status;
+    }
+
+    /**
+     * @return HasMany<OrderItem, $this>
+     */
+    public function items(): HasMany
+    {
+        return $this->hasMany(OrderItem::class);
     }
 
     /**

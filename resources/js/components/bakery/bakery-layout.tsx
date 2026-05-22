@@ -71,7 +71,7 @@ export default function BakeryLayout({ children, compact = false }: BakeryLayout
                         <Link
                             aria-label="Tài khoản"
                             className="grid h-11 w-11 place-items-center rounded-full text-[var(--bakery-gray)] transition hover:bg-[var(--bakery-lav-light)] hover:text-[var(--bakery-lav)]"
-                            href={authUser && isAdminUser(authUser) ? '/admin' : '/account'}
+                            href="/account"
                         >
                             <UserRound size={20} />
                         </Link>
@@ -86,8 +86,8 @@ export default function BakeryLayout({ children, compact = false }: BakeryLayout
                             </span>
                         </Link>
                         <Link
-                            className="bakery-nav-btn max-w-32 truncate"
-                            href={authUser ? (isAdminUser(authUser) ? '/admin' : '/account') : '/auth'}
+                            className="bakery-nav-btn shrink-0 whitespace-nowrap"
+                            href={authUser ? '/account' : '/auth'}
                         >
                             {authUser ? authUser.username : 'Đăng nhập'}
                         </Link>

@@ -23,7 +23,6 @@ class UserController extends Controller
                 'username',
                 'role',
                 'login_by_google',
-                'phone_number',
                 'created_at',
                 'updated_at',
                 'create_date',

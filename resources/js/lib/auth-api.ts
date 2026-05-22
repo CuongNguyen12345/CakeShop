@@ -1,7 +1,7 @@
 export type AuthUser = {
     id: number;
     username: string;
-    phone_number?: string | null;
+    email?: string | null;
     role?: string | null;
     login_by_google?: boolean;
 };
@@ -29,11 +29,15 @@ export async function login(payload: { username: string; password: string }): Pr
     return postJson<AuthResponse>('/api/login', payload);
 }
 
-export async function register(payload: { username: string; phone_number: string; password: string }): Promise<AuthResponse> {
+export async function register(payload: { username: string; email: string; password: string }): Promise<AuthResponse> {
     return postJson<AuthResponse>('/api/register', payload);
 }
 
-export async function changePassword(payload: { username: string; phone_number: string; new_password: string }): Promise<MessageResponse> {
+export async function googleLogin(payload: { credential: string }): Promise<AuthResponse> {
+    return postJson<AuthResponse>('/api/login/google', payload);
+}
+
+export async function changePassword(payload: { username: string; email: string; new_password: string }): Promise<MessageResponse> {
     return postJson<MessageResponse>('/api/forgot-password', payload);
 }
 

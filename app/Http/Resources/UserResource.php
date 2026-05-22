@@ -27,7 +27,6 @@ class UserResource extends JsonResource
                 array_key_exists('login_by_google', $attributes),
                 (bool) ($attributes['login_by_google'] ?? false)
             ),
-            'phone_number' => $this->when(array_key_exists('phone_number', $attributes), $attributes['phone_number'] ?? null),
             'created_at' => $this->when(
                 array_key_exists('created_at', $attributes) || array_key_exists('create_date', $attributes),
                 $this->formatDate($this->created_at ?? $attributes['create_date'] ?? null)

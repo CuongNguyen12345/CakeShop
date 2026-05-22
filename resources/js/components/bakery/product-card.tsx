@@ -1,7 +1,10 @@
 import { Link } from '@inertiajs/react';
 import { Heart, Plus } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 import { BakeryProduct, CartItem } from '@/data/bakery';
+import { readAuthUser } from '@/lib/auth-api';
+import { toggleWishlist } from '@/lib/wishlist-api';
 
 function readCart(): CartItem[] {
     return JSON.parse(localStorage.getItem('fleur-cart') ?? '[]') as CartItem[];
@@ -25,20 +28,68 @@ export function addProductToCart(product: BakeryProduct, qty = 1): void {
     writeCart(cart);
 }
 
-export default function ProductCard({ product, compact = false }: { product: BakeryProduct; compact?: boolean }) {
+export default function ProductCard({
+    product,
+    compact = false,
+    initialIsFavorite = false,
+    onFavoriteChange,
+}: {
+    product: BakeryProduct;
+    compact?: boolean;
+    initialIsFavorite?: boolean;
+    onFavoriteChange?: (productId: number, isFavorite: boolean) => void;
+}) {
     const imageFrameClass = compact ? 'h-40' : 'h-[260px]';
+    const [isFavorite, setIsFavorite] = useState(initialIsFavorite);
+    const [isSavingFavorite, setIsSavingFavorite] = useState(false);
+
+    useEffect(() => {
+        setIsFavorite(initialIsFavorite);
+    }, [initialIsFavorite]);
+
+    async function handleToggleFavorite() {
+        const authUser = readAuthUser();
+
+        if (!authUser) {
+            window.location.href = '/auth';
+
+            return;
+        }
+
+        if (isSavingFavorite) {
+            return;
+        }
+
+        setIsSavingFavorite(true);
+
+        try {
+            const response = await toggleWishlist(authUser.id, product.id);
+
+            setIsFavorite(response.is_favorite);
+            onFavoriteChange?.(product.id, response.is_favorite);
+        } finally {
+            setIsSavingFavorite(false);
+        }
+    }
 
     return (
         <Link className="bakery-product-card group" href={`/products/${product.id}`}>
             <div className={`relative grid ${imageFrameClass} place-items-center overflow-hidden`} style={{ background: product.bg }}>
                 {product.tag && <span className={`bakery-product-tag z-10 ${product.tagClass ?? 'bakery-pill-lav'}`}>{product.tag}</span>}
                 <button
-                    aria-label="Yêu thích"
-                    className="absolute top-2.5 right-2.5 z-10 grid h-8 w-8 place-items-center rounded-full bg-white/85 text-[var(--bakery-gray)] transition group-hover:scale-105"
-                    onClick={(event) => event.preventDefault()}
+                    aria-label={isFavorite ? 'Bỏ yêu thích' : 'Yêu thích'}
+                    className={`absolute top-2.5 right-2.5 z-10 grid h-8 w-8 place-items-center rounded-full bg-white/90 transition group-hover:scale-105 disabled:cursor-not-allowed disabled:opacity-70 ${
+                        isFavorite ? 'text-rose-500 shadow-[0_6px_18px_rgba(244,63,94,.22)]' : 'text-[var(--bakery-gray)]'
+                    }`}
+                    disabled={isSavingFavorite}
+                    onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        void handleToggleFavorite();
+                    }}
                     type="button"
                 >
-                    <Heart size={15} />
+                    <Heart fill={isFavorite ? 'currentColor' : 'none'} size={15} />
                 </button>
                 {product.imageUrl ? (
                     <img

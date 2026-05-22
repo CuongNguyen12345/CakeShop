@@ -1,6 +1,18 @@
 <?php
 
 use App\Models\Order;
+use Illuminate\Support\Facades\DB;
+
+beforeEach(function () {
+    DB::table('products')->insertOrIgnore([
+        'id' => 1,
+        'name' => 'Sakura Mousse Cake',
+        'description' => 'Kem tươi · Hoa anh đào · 6 inch',
+        'price' => 185000,
+        'stock_quantity' => 10,
+        'is_available' => true,
+    ]);
+});
 
 it('creates a cod checkout redirect', function () {
     $response = $this->postJson('/api/payments/checkout', checkoutPayload([
@@ -21,8 +33,57 @@ it('creates a cod checkout redirect', function () {
         'code' => $response->json('order_code'),
         'payment_method' => 'cod',
         'payment_status' => 'pending',
+        'order_status' => 'pending',
         'amount' => 185000,
-        'customer_email' => 'customer@example.com',
+        'customer_email' => null,
+    ]);
+
+    $this->assertDatabaseHas('order_items', [
+        'order_id' => Order::where('code', $response->json('order_code'))->value('id'),
+        'product_id' => 1,
+        'item_name' => 'Sakura Mousse Cake',
+        'quantity' => 1,
+        'price' => 185000,
+    ]);
+
+    $this->assertDatabaseHas('products', [
+        'id' => 1,
+        'stock_quantity' => 9,
+    ]);
+});
+
+it('rejects checkout when product stock is not enough', function () {
+    DB::table('products')->where('id', 1)->update(['stock_quantity' => 0]);
+
+    $this->postJson('/api/payments/checkout', checkoutPayload([
+        'order_code' => '20260521123456000006',
+    ]))
+        ->assertUnprocessable()
+        ->assertInvalid(['items']);
+
+    $this->assertDatabaseMissing('orders', [
+        'code' => '20260521123456000006',
+    ]);
+});
+
+it('uses the logged in user email as the order customer email', function () {
+    $userId = DB::table('users')->insertGetId([
+        'name' => 'Nguyen Van A',
+        'email' => 'nguyenvana@example.com',
+        'password' => 'secret',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    $response = $this->postJson('/api/payments/checkout', checkoutPayload([
+        'user_id' => $userId,
+        'order_code' => '20260521123456000007',
+    ]))->assertSuccessful();
+
+    $this->assertDatabaseHas('orders', [
+        'code' => $response->json('order_code'),
+        'user_id' => $userId,
+        'customer_email' => 'nguyenvana@example.com',
     ]);
 });
 
@@ -92,6 +153,105 @@ it('marks a bank order as paid from a valid sepay webhook', function () {
     ]);
 });
 
+it('returns the latest payment status for an order code', function () {
+    $order = Order::create(orderPayload([
+        'code' => '20260521123456000003',
+        'payment_method' => 'bank',
+        'payment_status' => 'paid',
+        'amount' => 185000,
+        'transfer_content' => 'FL20260521123456000003',
+        'paid_at' => now(),
+    ]));
+    DB::table('order_items')->insert([
+        'order_id' => $order->id,
+        'product_id' => 1,
+        'item_name' => 'Sakura Mousse Cake',
+        'item_description' => 'Kem tươi · Hoa anh đào · 6 inch',
+        'quantity' => 1,
+        'price' => 185000,
+    ]);
+
+    $this->getJson('/api/payments/orders/'.$order->code)
+        ->assertSuccessful()
+        ->assertJsonPath('order_code', '20260521123456000003')
+        ->assertJsonPath('payment_method', 'bank')
+        ->assertJsonPath('payment_status', 'paid')
+        ->assertJsonPath('order_status', 'baking')
+        ->assertJsonPath('amount', 185000)
+        ->assertJsonPath('transfer_content', 'FL20260521123456000003')
+        ->assertJsonPath('items.0.name', 'Sakura Mousse Cake')
+        ->assertJsonPath('timeline.2.status', 'baking');
+});
+
+it('lists orders and advances order status for admin management', function () {
+    $order = Order::create(orderPayload([
+        'code' => '20260521123456000004',
+        'order_status' => 'pending',
+    ]));
+
+    $this->postJson('/api/payments/checkout', checkoutPayload([
+        'order_code' => '20260521123456000005',
+    ]))->assertSuccessful();
+
+    $this->getJson('/api/orders')
+        ->assertSuccessful()
+        ->assertJsonPath('data.0.code', '20260521123456000005')
+        ->assertJsonPath('data.0.items.0.name', 'Sakura Mousse Cake');
+
+    $this->patchJson('/api/orders/'.$order->code.'/status', [
+        'order_status' => 'confirmed',
+    ])
+        ->assertSuccessful()
+        ->assertJsonPath('order.order_status', 'confirmed')
+        ->assertJsonPath('order.order_status_label', 'Đã xác nhận');
+
+    expect($order->refresh()->order_status)->toBe('confirmed');
+});
+
+it('lists only orders that belong to the requested user history', function () {
+    $adminId = DB::table('users')->insertGetId([
+        'name' => 'Admin',
+        'email' => 'admin@example.com',
+        'password' => 'secret',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+    $customerId = DB::table('users')->insertGetId([
+        'name' => 'Customer',
+        'email' => 'customer@example.com',
+        'password' => 'secret',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+    $customerOrder = Order::create(orderPayload([
+        'code' => '20260521123456000008',
+        'user_id' => $customerId,
+        'customer_email' => 'customer@example.com',
+    ]));
+    Order::create(orderPayload([
+        'code' => '20260521123456000009',
+        'user_id' => null,
+        'customer_email' => null,
+    ]));
+    DB::table('order_items')->insert([
+        'order_id' => $customerOrder->id,
+        'product_id' => 1,
+        'item_name' => 'Sakura Mousse Cake',
+        'quantity' => 1,
+        'price' => 185000,
+    ]);
+
+    $this->getJson("/api/users/{$adminId}/orders")
+        ->assertSuccessful()
+        ->assertJsonCount(0, 'data');
+
+    $this->getJson("/api/users/{$customerId}/orders")
+        ->assertSuccessful()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.order_code', '20260521123456000008')
+        ->assertJsonPath('data.0.items.0.name', 'Sakura Mousse Cake');
+});
+
 it('keeps a bank order pending when sepay transfer amount is not enough', function () {
     config()->set('services.sepay.api_key', 'test-secret');
 
@@ -140,13 +300,12 @@ it('requires customer contact and delivery details', function () {
         ->assertJsonValidationErrors([
             'customer_name',
             'customer_phone',
-            'customer_email',
             'customer_address',
             'customer_district',
             'delivery_date',
             'delivery_slot',
         ])
-        ->assertJsonMissingValidationErrors(['customer_note']);
+        ->assertJsonMissingValidationErrors(['customer_email', 'customer_note']);
 });
 
 it('rejects unsupported payment methods', function () {
@@ -167,7 +326,6 @@ function checkoutPayload(array $overrides = []): array
         'amount' => 185000,
         'customer_name' => 'Nguyen Van A',
         'customer_phone' => '0901234567',
-        'customer_email' => 'customer@example.com',
         'shipping_address' => '12 Tran Hung Dao, Quan 1',
         'customer_address' => '12 Tran Hung Dao',
         'customer_district' => 'Quan 1',
@@ -175,6 +333,15 @@ function checkoutPayload(array $overrides = []): array
         'delivery_time' => '14:00:00',
         'delivery_slot' => '14:00 - 15:00',
         'total_amount' => 185000,
+        'items' => [
+            [
+                'product_id' => 1,
+                'name' => 'Sakura Mousse Cake',
+                'description' => 'Kem tươi · Hoa anh đào · 6 inch',
+                'quantity' => 1,
+                'price' => 185000,
+            ],
+        ],
     ], $overrides);
 }
 
@@ -188,6 +355,7 @@ function orderPayload(array $overrides = []): array
         'code' => '20260521123456000002',
         'payment_method' => 'bank',
         'payment_status' => 'pending',
+        'order_status' => 'baking',
         'amount' => 185000,
         'customer_name' => 'Nguyen Van A',
         'customer_phone' => '0901234567',
