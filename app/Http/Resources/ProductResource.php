@@ -27,7 +27,7 @@ class ProductResource extends JsonResource
             'sold_count' => (int) ($this->sold_count ?? 0),
             'tag' => $this->tag,
             'is_available' => (bool) $this->is_available,
-            'category' => new CategoryResource($this->whenLoaded('category')),
+            'category' => $this->whenLoaded('category', fn () => (new CategoryResource($this->category))->resolve($request)),
         ];
     }
 }

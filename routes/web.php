@@ -27,9 +27,26 @@ Route::get('menu', function () {
     return Inertia::render('bakery/menu');
 })->name('bakery.menu');
 
-Route::get('products/{productId?}', function (?int $productId = 1) {
+Route::get('products/{productId?}', function (?int $productId = null) {
+    $product = Product::query()
+        ->with('category')
+        ->withSum('orderItems as sold_count', 'quantity')
+        ->when($productId, fn ($query) => $query->whereKey($productId))
+        ->when(! $productId, fn ($query) => $query->where('is_available', true)->latest('id'))
+        ->firstOrFail();
+
+    $relatedProducts = Product::query()
+        ->with('category')
+        ->where('is_available', true)
+        ->whereKeyNot($product->id)
+        ->when($product->category_id, fn ($query) => $query->where('category_id', $product->category_id))
+        ->latest('id')
+        ->limit(4)
+        ->get();
+
     return Inertia::render('bakery/product-detail', [
-        'productId' => $productId,
+        'product' => (new ProductResource($product))->resolve(),
+        'relatedProducts' => ProductResource::collection($relatedProducts)->resolve(),
     ]);
 })->name('bakery.products.show');
 
